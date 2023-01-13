@@ -840,7 +840,10 @@ SPIRVFunction *LLVMToSPIRVBase::transFunctionDecl(Function *F) {
     if (Attrs.hasParamAttr(ArgNo, Attribute::ReadOnly))
       BA->addAttr(FunctionParameterAttributeNoWrite);
     if (Attrs.hasParamAttr(ArgNo, Attribute::ReadNone))
-      BA->addAttr(FunctionParameterAttributeNoReadWrite);
+      // TODO: intel/llvm customization
+      // see https://github.com/intel/llvm/issues/7592
+      // Need to return FunctionParameterAttributeNoReadWrite
+      BA->addAttr(FunctionParameterAttributeNoWrite);
     if (Attrs.hasParamAttr(ArgNo, Attribute::ZExt))
       BA->addAttr(FunctionParameterAttributeZext);
     if (Attrs.hasParamAttr(ArgNo, Attribute::SExt))
@@ -900,6 +903,8 @@ SPIRVFunction *LLVMToSPIRVBase::transFunctionDecl(Function *F) {
     transVectorComputeMetadata(F);
 
   transFPGAFunctionMetadata(BF, F);
+
+  transFunctionMetadataAsUserSemanticDecoration(BF, F);
 
   SPIRVDBG(dbgs() << "[transFunction] " << *F << " => ";
            spvdbgs() << *BF << '\n';)
@@ -1043,6 +1048,29 @@ void LLVMToSPIRVBase::transFPGAFunctionMetadata(SPIRVFunction *BF,
   // In addition, process the decorations on the function
   if (auto *FDecoMD = F->getMetadata(SPIRV_MD_DECORATIONS))
     transMetadataDecorations(FDecoMD, BF);
+}
+
+void LLVMToSPIRVBase::transFunctionMetadataAsUserSemanticDecoration(
+    SPIRVFunction *BF, Function *F) {
+  if (auto *RegisterAllocModeMD = F->getMetadata("RegisterAllocMode")) {
+    // TODO: Once the design for per-kernel register size allocation is
+    // finalized, we will need to move away from UserSemantic and introduce an
+    // extension
+    int RegisterAllocNodeMDOp = getMDOperandAsInt(RegisterAllocModeMD, 0);
+    // The current RegisterAllocMode metadata format is as follows
+    // AUTO - 0
+    // SMALL - 1
+    // LARGE - 2
+    // DEFAULT - 3
+    // Currently we only support SMALL and LARGE
+    if (RegisterAllocNodeMDOp == 1 || RegisterAllocNodeMDOp == 2) {
+      // 4 threads per eu means large grf mode, and 8 threads per eu
+      // means small grf mode
+      std::string NumThreads = RegisterAllocNodeMDOp == 2 ? "4" : "8";
+      BF->addDecorate(new SPIRVDecorateUserSemanticAttr(
+          BF, "num-thread-per-eu " + NumThreads));
+    }
+  }
 }
 
 SPIRVValue *LLVMToSPIRVBase::transConstantUse(Constant *C) {
@@ -1528,43 +1556,42 @@ LLVMToSPIRVBase::getLoopControl(const BranchInst *Branch,
           BM->addExtension(ExtensionID::SPV_INTEL_fpga_loop_controls);
           BM->addCapability(CapabilityFPGALoopControlsINTEL);
           LoopCount.Min = getMDOperandAsInt(Node, 1);
-          LoopControl |= spv::internal::LoopControlLoopCountINTELMask;
+          LoopControl |= spv::LoopControlLoopCountINTELMask;
         } else if (S == "llvm.loop.intel.loopcount_max") {
           BM->addExtension(ExtensionID::SPV_INTEL_fpga_loop_controls);
           BM->addCapability(CapabilityFPGALoopControlsINTEL);
           LoopCount.Max = getMDOperandAsInt(Node, 1);
-          LoopControl |= spv::internal::LoopControlLoopCountINTELMask;
+          LoopControl |= spv::LoopControlLoopCountINTELMask;
         } else if (S == "llvm.loop.intel.loopcount_avg") {
           BM->addExtension(ExtensionID::SPV_INTEL_fpga_loop_controls);
           BM->addCapability(CapabilityFPGALoopControlsINTEL);
           LoopCount.Avg = getMDOperandAsInt(Node, 1);
-          LoopControl |= spv::internal::LoopControlLoopCountINTELMask;
+          LoopControl |= spv::LoopControlLoopCountINTELMask;
         } else if (S == "llvm.loop.intel.max_reinvocation_delay.count") {
           BM->addExtension(ExtensionID::SPV_INTEL_fpga_loop_controls);
           BM->addCapability(CapabilityFPGALoopControlsINTEL);
           size_t I = getMDOperandAsInt(Node, 1);
           ParametersToSort.emplace_back(
-              spv::internal::LoopControlMaxReinvocationDelayINTELMask, I);
-          LoopControl |=
-              spv::internal::LoopControlMaxReinvocationDelayINTELMask;
+              spv::LoopControlMaxReinvocationDelayINTELMask, I);
+          LoopControl |= spv::LoopControlMaxReinvocationDelayINTELMask;
         }
       }
     }
   }
-  if (LoopControl & spv::internal::LoopControlLoopCountINTELMask) {
+  if (LoopControl & spv::LoopControlLoopCountINTELMask) {
     // LoopCountINTELMask have int64 literal parameters and we need to store
     // int64 into 2 SPIRVWords
-    ParametersToSort.emplace_back(spv::internal::LoopControlLoopCountINTELMask,
+    ParametersToSort.emplace_back(spv::LoopControlLoopCountINTELMask,
                                   static_cast<SPIRVWord>(LoopCount.Min));
-    ParametersToSort.emplace_back(spv::internal::LoopControlLoopCountINTELMask,
+    ParametersToSort.emplace_back(spv::LoopControlLoopCountINTELMask,
                                   static_cast<SPIRVWord>(LoopCount.Min >> 32));
-    ParametersToSort.emplace_back(spv::internal::LoopControlLoopCountINTELMask,
+    ParametersToSort.emplace_back(spv::LoopControlLoopCountINTELMask,
                                   static_cast<SPIRVWord>(LoopCount.Max));
-    ParametersToSort.emplace_back(spv::internal::LoopControlLoopCountINTELMask,
+    ParametersToSort.emplace_back(spv::LoopControlLoopCountINTELMask,
                                   static_cast<SPIRVWord>(LoopCount.Max >> 32));
-    ParametersToSort.emplace_back(spv::internal::LoopControlLoopCountINTELMask,
+    ParametersToSort.emplace_back(spv::LoopControlLoopCountINTELMask,
                                   static_cast<SPIRVWord>(LoopCount.Avg));
-    ParametersToSort.emplace_back(spv::internal::LoopControlLoopCountINTELMask,
+    ParametersToSort.emplace_back(spv::LoopControlLoopCountINTELMask,
                                   static_cast<SPIRVWord>(LoopCount.Avg >> 32));
   }
   // If any loop control parameters were held back until fully collected,
@@ -1814,6 +1841,55 @@ LLVMToSPIRVBase::transValueWithoutDecoration(Value *V, SPIRVBasicBlock *BB,
       }
       BM->addExtension(ExtensionID::SPV_INTEL_hw_thread_queries);
     }
+
+    // TODO: it's W/A for intel/llvm to prevent not fixed SPIR-V consumers
+    // see https://github.com/intel/llvm/issues/7592
+    // from crashing. Need to remove, when we have the fixed drivers
+    // to remove: begin
+    {
+      std::vector<Instruction *> GEPs;
+      std::vector<Instruction *> Loads;
+      auto *GVTy = GV->getType();
+      auto *VecTy = GVTy->isOpaquePointerTy()
+                        ? nullptr
+                        : dyn_cast<FixedVectorType>(
+                              GVTy->getNonOpaquePointerElementType());
+      auto ReplaceIfLoad = [&](User *I, ConstantInt *Idx) -> void {
+        auto *LD = dyn_cast<LoadInst>(I);
+        if (!LD)
+          return;
+        Loads.push_back(LD);
+        const DebugLoc &DLoc = LD->getDebugLoc();
+        LoadInst *Load = new LoadInst(VecTy, GV, "", LD);
+        ExtractElementInst *Extract = ExtractElementInst::Create(Load, Idx);
+        if (DLoc)
+          Extract->setDebugLoc(DLoc);
+        Extract->insertAfter(cast<Instruction>(Load));
+        LD->replaceAllUsesWith(Extract);
+      };
+      for (auto *UI : GV->users()) {
+        if (!VecTy)
+          break;
+        if (auto *GEP = dyn_cast<GetElementPtrInst>(UI)) {
+          GEPs.push_back(GEP);
+          for (auto *GEPUser : GEP->users()) {
+            assert(GEP->getNumIndices() == 2 &&
+                   "GEP to ID vector is expected to have exactly 2 indices");
+            auto *Idx = cast<ConstantInt>(GEP->getOperand(2));
+            ReplaceIfLoad(GEPUser, Idx);
+          }
+        }
+      }
+      auto Erase = [](std::vector<Instruction *> &ToErase) {
+        for (Instruction *I : ToErase) {
+          assert(I->user_empty());
+          I->eraseFromParent();
+        }
+      };
+      Erase(Loads);
+      Erase(GEPs);
+    }
+    // to remove: end
 
     BVar->setBuiltin(Builtin);
     return BVar;
@@ -2184,9 +2260,13 @@ LLVMToSPIRVBase::transValueWithoutDecoration(Value *V, SPIRVBasicBlock *BB,
 
   if (AtomicRMWInst *ARMW = dyn_cast<AtomicRMWInst>(V)) {
     AtomicRMWInst::BinOp Op = ARMW->getOperation();
+    bool SupportedAtomicInst =
+        AtomicRMWInst::isFPOperation(Op)
+            ? (Op == AtomicRMWInst::FAdd || Op == AtomicRMWInst::FMin ||
+               Op == AtomicRMWInst::FMax)
+            : Op != AtomicRMWInst::Nand;
     if (!BM->getErrorLog().checkError(
-            !AtomicRMWInst::isFPOperation(Op) && Op != AtomicRMWInst::Nand,
-            SPIRVEC_InvalidInstruction, V,
+            SupportedAtomicInst, SPIRVEC_InvalidInstruction, V,
             "Atomic " + AtomicRMWInst::getOperationName(Op).str() +
                 " is not supported in SPIR-V!\n"))
       return nullptr;
@@ -2386,9 +2466,9 @@ static void transMetadataDecorations(Metadata *MD, SPIRVEntry *Target) {
       ONE_STRING_DECORATION_CASE(UserSemantic, spv)
       ONE_INT_DECORATION_CASE(AliasScopeINTEL, spv, SPIRVId)
       ONE_INT_DECORATION_CASE(NoAliasINTEL, spv, SPIRVId)
-      ONE_INT_DECORATION_CASE(InitiationIntervalINTEL, spv::internal, SPIRVWord)
-      ONE_INT_DECORATION_CASE(MaxConcurrencyINTEL, spv::internal, SPIRVWord)
-      ONE_INT_DECORATION_CASE(PipelineEnableINTEL, spv::internal, SPIRVWord)
+      ONE_INT_DECORATION_CASE(InitiationIntervalINTEL, spv, SPIRVWord)
+      ONE_INT_DECORATION_CASE(MaxConcurrencyINTEL, spv, SPIRVWord)
+      ONE_INT_DECORATION_CASE(PipelineEnableINTEL, spv, SPIRVWord)
       TWO_INT_DECORATION_CASE(FunctionRoundingModeINTEL, spv, SPIRVWord,
                               FPRoundingMode);
       TWO_INT_DECORATION_CASE(FunctionDenormModeINTEL, spv, SPIRVWord,
@@ -2397,8 +2477,7 @@ static void transMetadataDecorations(Metadata *MD, SPIRVEntry *Target) {
                               FPOperationMode);
       TWO_INT_DECORATION_CASE(FuseLoopsInFunctionINTEL, spv, SPIRVWord,
                               SPIRVWord);
-      TWO_INT_DECORATION_CASE(MathOpDSPModeINTEL, spv::internal, SPIRVWord,
-                              SPIRVWord);
+      TWO_INT_DECORATION_CASE(MathOpDSPModeINTEL, spv, SPIRVWord, SPIRVWord);
     case DecorationStallEnableINTEL: {
       Target->addDecorate(new SPIRVDecorateStallEnableINTEL(Target));
       break;
@@ -2809,9 +2888,9 @@ struct IntelLSUControlsInfo {
   }
 
   bool BurstCoalesce = false;
-  llvm::Optional<unsigned> CacheSizeInfo;
+  std::optional<unsigned> CacheSizeInfo;
   bool DontStaticallyCoalesce = false;
-  llvm::Optional<unsigned> PrefetchInfo;
+  std::optional<unsigned> PrefetchInfo;
 };
 
 // Handle optional var/ptr/global annotation parameter. It can be for example
@@ -4122,18 +4201,26 @@ SPIRVValue *LLVMToSPIRVBase::transDirectCallInst(CallInst *CI,
       auto *FormatStrPtr = cast<PointerType>(CI->getArgOperand(0)->getType());
       if (FormatStrPtr->getAddressSpace() !=
           SPIR::TypeAttributeEnum::ATTR_CONST) {
-        if (!BM->isAllowedToUseExtension(
-                ExtensionID::SPV_INTEL_non_constant_addrspace_printf)) {
+        if (BM->isAllowedToUseExtension(
+                ExtensionID::SPV_EXT_relaxed_printf_string_address_space)) {
+          BM->addExtension(
+              ExtensionID::SPV_EXT_relaxed_printf_string_address_space);
+        } else if (BM->isAllowedToUseExtension(
+                       ExtensionID::SPV_INTEL_non_constant_addrspace_printf)) {
+          BM->addExtension(
+              ExtensionID::SPV_INTEL_non_constant_addrspace_printf);
+          BM->addCapability(
+              internal::CapabilityNonConstantAddrspacePrintfINTEL);
+        } else {
           std::string ErrorStr =
-              "The SPV_INTEL_non_constant_addrspace_printf extension should be "
+              "Either SPV_EXT_relaxed_printf_string_address_space or "
+              "SPV_INTEL_non_constant_addrspace_printf extension should be "
               "allowed to translate this module, because this LLVM module "
               "contains the printf function with format string, whose address "
               "space is not equal to 2 (constant).";
           getErrorLog().checkError(false, SPIRVEC_RequiresExtension, CI,
                                    ErrorStr);
         }
-        BM->addExtension(ExtensionID::SPV_INTEL_non_constant_addrspace_printf);
-        BM->addCapability(internal::CapabilityNonConstantAddrspacePrintfINTEL);
       }
     }
 

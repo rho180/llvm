@@ -370,8 +370,8 @@ AMDGPUTargetInfo::AMDGPUTargetInfo(const llvm::Triple &Triple,
   WavefrontSize = GPUFeatures & llvm::AMDGPU::FEATURE_WAVE32 ? 32 : 64;
   AllowAMDGPUUnsafeFPAtomics = Opts.AllowAMDGPUUnsafeFPAtomics;
 
-  // Set pointer width and alignment for target address space 0.
-  PointerWidth = PointerAlign = getPointerWidthV(Generic);
+  // Set pointer width and alignment for the generic address space.
+  PointerWidth = PointerAlign = getPointerWidthV(LangAS::Default);
   if (getMaxPointerWidth() == 64) {
     LongWidth = LongAlign = 64;
     SizeType = UnsignedLong;
@@ -415,6 +415,7 @@ void AMDGPUTargetInfo::getTargetDefines(const LangOptions &Opts,
       assert(CanonName.startswith("gfx") && "Invalid amdgcn canonical name");
       Builder.defineMacro(Twine("__") + Twine(CanonName.drop_back(2).upper()) +
                           Twine("__"));
+      Builder.defineMacro("__CUDA_ARCH__", "0");
     }
     if (isAMDGCN(getTriple())) {
       Builder.defineMacro("__amdgcn_processor__",

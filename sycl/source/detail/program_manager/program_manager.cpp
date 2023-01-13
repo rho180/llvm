@@ -360,6 +360,8 @@ RT::PiProgram ProgramManager::createPIProgram(const RTDeviceBinaryImage &Img,
     NativePrograms[Res] = &Img;
   }
 
+  Ctx->addDeviceGlobalInitializer(Res, {Device}, &Img);
+
   if (DbgProgMgr > 1)
     std::cerr << "created program: " << Res
               << "; image format: " << getFormatStr(Format) << "\n";
@@ -388,7 +390,9 @@ static bool getUint32PropAsBool(const RTDeviceBinaryImage &Img,
 }
 
 static void appendCompileOptionsFromImage(std::string &CompileOpts,
-                                          const RTDeviceBinaryImage &Img) {
+                                          const RTDeviceBinaryImage &Img,
+                                          const std::vector<device> &Devs,
+                                          const detail::plugin &Plugin) {
   // Build options are overridden if environment variables are present.
   // Environment variables are not changed during program lifecycle so it
   // is reasonable to use static here to read them only once.
@@ -421,16 +425,30 @@ static void appendCompileOptionsFromImage(std::string &CompileOpts,
   if (isLargeGRF) {
     if (!CompileOpts.empty())
       CompileOpts += " ";
-    // TODO: Always use -ze-opt-large-register-file once IGC VC bug ignoring it
-    // is fixed
+    // TODO: Don't check the property or pass these flags after the next ABI
+    // break. The behavior is now controlled through the RegisterAllocMode
+    // metadata.
     CompileOpts += isEsimdImage ? "-doubleGRF" : "-ze-opt-large-register-file";
+  }
+  if ((Plugin.getBackend() == backend::ext_oneapi_level_zero ||
+       Plugin.getBackend() == backend::opencl) &&
+      std::all_of(Devs.begin(), Devs.end(),
+                  [](const device &Dev) { return Dev.is_gpu(); }) &&
+      Img.getDeviceGlobals().size() != 0) {
+    // If the image has device globals we need to add the
+    // -ze-take-global-address option to tell IGC to record addresses of these.
+    if (!CompileOpts.empty())
+      CompileOpts += " ";
+    CompileOpts += "-ze-take-global-address";
   }
 }
 
 static void applyOptionsFromImage(std::string &CompileOpts,
                                   std::string &LinkOpts,
-                                  const RTDeviceBinaryImage &Img) {
-  appendCompileOptionsFromImage(CompileOpts, Img);
+                                  const RTDeviceBinaryImage &Img,
+                                  const std::vector<device> &Devices,
+                                  const detail::plugin &Plugin) {
+  appendCompileOptionsFromImage(CompileOpts, Img, Devices, Plugin);
   appendLinkOptionsFromImage(LinkOpts, Img);
 }
 
@@ -596,9 +614,9 @@ RT::PiProgram ProgramManager::getBuiltPIProgram(
 
   auto BuildF = [this, &Img, &Context, &ContextImpl, &Device, Prg, &CompileOpts,
                  &LinkOpts, SpecConsts] {
-    applyOptionsFromImage(CompileOpts, LinkOpts, Img);
-
     const detail::plugin &Plugin = ContextImpl->getPlugin();
+    applyOptionsFromImage(CompileOpts, LinkOpts, Img, {Device}, Plugin);
+
     auto [NativePrg, DeviceCodeWasInCache] = getOrCreatePIProgram(
         Img, Context, Device, CompileOpts + LinkOpts, SpecConsts);
 
@@ -634,6 +652,8 @@ RT::PiProgram ProgramManager::getBuiltPIProgram(
       std::lock_guard<std::mutex> Lock(MNativeProgramsMutex);
       NativePrograms[BuiltProgram.get()] = &Img;
     }
+
+    ContextImpl->addDeviceGlobalInitializer(BuiltProgram.get(), {Device}, &Img);
 
     // Save program to persistent cache if it is not there
     if (!DeviceCodeWasInCache)
@@ -1605,6 +1625,44 @@ void ProgramManager::addOrInitDeviceGlobalEntry(const void *DeviceGlobalPtr,
   m_Ptr2DeviceGlobal.insert({DeviceGlobalPtr, NewEntry.first->second.get()});
 }
 
+std::set<RTDeviceBinaryImage *>
+ProgramManager::getRawDeviceImages(const std::vector<kernel_id> &KernelIDs) {
+  std::set<RTDeviceBinaryImage *> BinImages;
+  std::lock_guard<std::mutex> KernelIDsGuard(m_KernelIDsMutex);
+  for (const kernel_id &KID : KernelIDs) {
+    auto Range = m_KernelIDs2BinImage.equal_range(KID);
+    for (auto It = Range.first, End = Range.second; It != End; ++It)
+      BinImages.insert(It->second);
+  }
+  return BinImages;
+}
+
+DeviceGlobalMapEntry *
+ProgramManager::getDeviceGlobalEntry(const void *DeviceGlobalPtr) {
+  std::lock_guard<std::mutex> DeviceGlobalsGuard(m_DeviceGlobalsMutex);
+  auto Entry = m_Ptr2DeviceGlobal.find(DeviceGlobalPtr);
+  assert(Entry != m_Ptr2DeviceGlobal.end() && "Device global entry not found");
+  return Entry->second;
+}
+
+std::vector<DeviceGlobalMapEntry *> ProgramManager::getDeviceGlobalEntries(
+    const std::vector<std::string> &UniqueIds,
+    bool ExcludeDeviceImageScopeDecorated) {
+  std::vector<DeviceGlobalMapEntry *> FoundEntries;
+  FoundEntries.reserve(UniqueIds.size());
+
+  std::lock_guard<std::mutex> DeviceGlobalsGuard(m_DeviceGlobalsMutex);
+  for (const std::string &UniqueId : UniqueIds) {
+    auto DeviceGlobalEntry = m_DeviceGlobals.find(UniqueId);
+    assert(DeviceGlobalEntry != m_DeviceGlobals.end() &&
+           "Device global not found in map.");
+    if (!ExcludeDeviceImageScopeDecorated ||
+        !DeviceGlobalEntry->second->MIsDeviceImageScopeDecorated)
+      FoundEntries.push_back(DeviceGlobalEntry->second.get());
+  }
+  return FoundEntries;
+}
+
 std::vector<device_image_plain>
 ProgramManager::getSYCLDeviceImagesWithCompatibleState(
     const context &Ctx, const std::vector<device> &Devs,
@@ -1614,12 +1672,17 @@ ProgramManager::getSYCLDeviceImagesWithCompatibleState(
   // TODO: Can we avoid repacking?
   std::set<RTDeviceBinaryImage *> BinImages;
   if (!KernelIDs.empty()) {
-    std::lock_guard<std::mutex> KernelIDsGuard(m_KernelIDsMutex);
-    for (const kernel_id &KID : KernelIDs) {
-      auto Range = m_KernelIDs2BinImage.equal_range(KID);
-      for (auto It = Range.first, End = Range.second; It != End; ++It)
-        BinImages.insert(It->second);
+    for (const auto &KID : KernelIDs) {
+      bool isCompatibleWithAtLeastOneDev =
+          std::any_of(Devs.begin(), Devs.end(), [&KID](const auto &Dev) {
+            return sycl::is_compatible({KID}, Dev);
+          });
+      if (!isCompatibleWithAtLeastOneDev)
+        throw sycl::exception(
+            make_error_code(errc::invalid),
+            "Kernel is incompatible with all devices in devs");
     }
+    BinImages = getRawDeviceImages(KernelIDs);
   } else {
     std::lock_guard<std::mutex> Guard(Sync::getGlobalLock());
     for (auto &ImagesSets : m_DeviceImages) {
@@ -1628,7 +1691,7 @@ ProgramManager::getSYCLDeviceImagesWithCompatibleState(
         BinImages.insert(ImageUPtr.get());
     }
   }
-  assert(BinImages.size() > 0 && "Expected to find at least on device image");
+  assert(BinImages.size() > 0 && "Expected to find at least one device image");
 
   std::vector<device_image_plain> SYCLDeviceImages;
   for (RTDeviceBinaryImage *BinImage : BinImages) {
@@ -1647,7 +1710,8 @@ ProgramManager::getSYCLDeviceImagesWithCompatibleState(
       continue;
 
     for (const sycl::device &Dev : Devs) {
-      if (!compatibleWithDevice(BinImage, Dev))
+      if (!compatibleWithDevice(BinImage, Dev) ||
+          !doesDevSupportImgAspects(Dev, *BinImage))
         continue;
 
       std::shared_ptr<std::vector<sycl::kernel_id>> KernelIDs;
@@ -1726,7 +1790,7 @@ ProgramManager::getSYCLDeviceImages(const context &Ctx,
   // Collect device images with compatible state
   std::vector<device_image_plain> DeviceImages =
       getSYCLDeviceImagesWithCompatibleState(Ctx, Devs, TargetState);
-  // Brind device images with compatible state to desired state
+  // Bring device images with compatible state to desired state.
   bringSYCLDeviceImagesToState(DeviceImages, TargetState);
   return DeviceImages;
 }
@@ -1773,7 +1837,7 @@ std::vector<device_image_plain> ProgramManager::getSYCLDeviceImages(
   std::vector<device_image_plain> DeviceImages =
       getSYCLDeviceImagesWithCompatibleState(Ctx, Devs, TargetState, KernelIDs);
 
-  // Brind device images with compatible state to desired state
+  // Bring device images with compatible state to desired state.
   bringSYCLDeviceImagesToState(DeviceImages, TargetState);
   return DeviceImages;
 }
@@ -1826,8 +1890,8 @@ ProgramManager::compile(const device_image_plain &DeviceImage,
   // TODO: Handle zero sized Device list.
   std::string CompileOptions;
   applyCompileOptionsFromEnvironment(CompileOptions);
-  appendCompileOptionsFromImage(CompileOptions,
-                                *(InputImpl->get_bin_image_ref()));
+  appendCompileOptionsFromImage(
+      CompileOptions, *(InputImpl->get_bin_image_ref()), Devs, Plugin);
   RT::PiResult Error = Plugin.call_nocheck<PiApiKind::piProgramCompile>(
       ObjectImpl->get_program_ref(), /*num devices=*/Devs.size(),
       PIDevices.data(), CompileOptions.c_str(),
@@ -1949,9 +2013,9 @@ device_image_plain ProgramManager::build(const device_image_plain &DeviceImage,
   // TODO: Unify this code with getBuiltPIProgram
   auto BuildF = [this, &Context, &Img, &Devs, &CompileOpts, &LinkOpts,
                  &InputImpl, SpecConsts] {
-    applyOptionsFromImage(CompileOpts, LinkOpts, Img);
     ContextImplPtr ContextImpl = getSyclObjImpl(Context);
     const detail::plugin &Plugin = ContextImpl->getPlugin();
+    applyOptionsFromImage(CompileOpts, LinkOpts, Img, Devs, Plugin);
 
     // TODO: Add support for creating non-SPIRV programs from multiple devices.
     if (InputImpl->get_bin_image_ref()->getFormat() !=
@@ -2011,6 +2075,8 @@ device_image_plain ProgramManager::build(const device_image_plain &DeviceImage,
       std::lock_guard<std::mutex> Lock(MNativeProgramsMutex);
       NativePrograms[BuiltProgram.get()] = &Img;
     }
+
+    ContextImpl->addDeviceGlobalInitializer(BuiltProgram.get(), Devs, &Img);
 
     // Save program to persistent cache if it is not there
     if (!DeviceCodeWasInCache)
@@ -2110,6 +2176,29 @@ std::pair<RT::PiKernel, std::mutex *> ProgramManager::getOrCreateKernel(
   assert(BuildResult != nullptr && "Invalid build result");
   return std::make_pair(BuildResult->Ptr.load(),
                         &(BuildResult->MBuildResultMutex));
+}
+
+bool doesDevSupportImgAspects(const device &Dev,
+                              const RTDeviceBinaryImage &Img) {
+  const RTDeviceBinaryImage::PropertyRange &PropRange =
+      Img.getDeviceRequirements();
+  RTDeviceBinaryImage::PropertyRange::ConstIterator PropIt = std::find_if(
+      PropRange.begin(), PropRange.end(),
+      [](RTDeviceBinaryImage::PropertyRange::ConstIterator &&Prop) {
+        using namespace std::literals;
+        return (*Prop)->Name == "aspects"sv;
+      });
+  if (PropIt == PropRange.end())
+    return true;
+  ByteArray Aspects = DeviceBinaryProperty(*PropIt).asByteArray();
+  // Drop 8 bytes describing the size of the byte array.
+  Aspects.dropBytes(8);
+  while (!Aspects.empty()) {
+    aspect Aspect = Aspects.consume<aspect>();
+    if (!Dev.has(Aspect))
+      return false;
+  }
+  return true;
 }
 
 } // namespace detail

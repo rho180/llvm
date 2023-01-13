@@ -212,16 +212,10 @@
 namespace sycl {
 __SYCL_INLINE_VER_NAMESPACE(_V1) {
 class stream;
-namespace ext {
-namespace intel {
-namespace esimd {
-namespace detail {
+namespace ext::intel::esimd::detail {
 // Forward declare a "back-door" access class to support ESIMD.
 class AccessorPrivateProxy;
-} // namespace detail
-} // namespace esimd
-} // namespace intel
-} // namespace ext
+} // namespace ext::intel::esimd::detail
 
 template <typename DataT, int Dimensions = 1,
           access::mode AccessMode = access::mode::read_write,
@@ -250,11 +244,7 @@ struct AccHostDataT {
 // To ensure loop unrolling is done when processing dimensions.
 template <size_t... Inds, class F>
 void dim_loop_impl(std::integer_sequence<size_t, Inds...>, F &&f) {
-#if __cplusplus >= 201703L
   (f(Inds), ...);
-#else
-  (void)std::initializer_list<int>{((void)(f(Inds)), 0)...};
-#endif
 }
 
 template <size_t count, class F> void dim_loop(F &&f) {
@@ -377,8 +367,6 @@ protected:
   };
 };
 
-#if __cplusplus >= 201703L
-
 template <typename MayBeTag1, typename MayBeTag2>
 constexpr access::mode deduceAccessMode() {
   // property_list = {} is not properly detected by deduction guide,
@@ -425,8 +413,6 @@ constexpr access::target deduceAccessTarget(access::target defaultTarget) {
 
   return defaultTarget;
 }
-
-#endif
 
 template <int Dims> class LocalAccessorBaseDevice {
 public:
@@ -506,8 +492,8 @@ public:
   template <class Obj>
   friend decltype(Obj::impl) getSyclObjImpl(const Obj &SyclObject);
 
-  template <class Obj>
-  friend Obj detail::createSyclObjFromImpl(decltype(Obj::impl) ImplObj);
+  template <class T>
+  friend T detail::createSyclObjFromImpl(decltype(T::impl) ImplObj);
 
   template <typename, int, access::mode, access::target, access::placeholder,
             typename>
@@ -541,8 +527,8 @@ protected:
   template <class Obj>
   friend decltype(Obj::impl) getSyclObjImpl(const Obj &SyclObject);
 
-  template <class Obj>
-  friend Obj detail::createSyclObjFromImpl(decltype(Obj::impl) ImplObj);
+  template <class T>
+  friend T detail::createSyclObjFromImpl(decltype(T::impl) ImplObj);
 
   LocalAccessorImplPtr impl;
 };
@@ -984,7 +970,7 @@ private:
 template <typename DataT, int Dimensions, access::mode AccessMode,
           access::target AccessTarget, access::placeholder IsPlaceholder,
           typename PropertyListT>
-class __SYCL_SPECIAL_CLASS __SYCL_TYPE(accessor) accessor :
+class __SYCL_EBO __SYCL_SPECIAL_CLASS __SYCL_TYPE(accessor) accessor :
 #ifndef __SYCL_DEVICE_ONLY__
     public detail::AccessorBaseHost,
 #endif
@@ -1041,14 +1027,10 @@ protected:
       // We've already adjusted for the accessor's offset in the __init, so
       // don't include it here in case of device.
 #ifndef __SYCL_DEVICE_ONLY__
-#if __cplusplus >= 201703L
       if constexpr (!(PropertyListT::template has_property<
                         sycl::ext::oneapi::property::no_offset>())) {
         Result += getOffset()[I];
       }
-#else
-      Result += getOffset()[I];
-#endif
 #endif // __SYCL_DEVICE_ONLY__
     });
 
@@ -1104,14 +1086,10 @@ protected:
               range<AdjustedDim> MemRange, id<AdjustedDim> Offset) {
     MData = Ptr;
     detail::dim_loop<AdjustedDim>([&, this](size_t I) {
-#if __cplusplus >= 201703L
       if constexpr (!(PropertyListT::template has_property<
                         sycl::ext::oneapi::property::no_offset>())) {
         getOffset()[I] = Offset[I];
       }
-#else
-      getOffset()[I] = Offset[I];
-#endif
       getAccessRange()[I] = AccessRange[I];
       getMemoryRange()[I] = MemRange[I];
     });
@@ -1226,8 +1204,8 @@ private:
   friend class sycl::stream;
   friend class sycl::ext::intel::esimd::detail::AccessorPrivateProxy;
 
-  template <class Obj>
-  friend Obj detail::createSyclObjFromImpl(decltype(Obj::impl) ImplObj);
+  template <class T>
+  friend T detail::createSyclObjFromImpl(decltype(T::impl) ImplObj);
 
 public:
   // 4.7.6.9.1. Interface for buffer command accessors
@@ -1464,8 +1442,6 @@ public:
   }
 #endif
 
-#if __cplusplus >= 201703L
-
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename TagT,
             typename = detail::enable_if_t<
@@ -1494,7 +1470,6 @@ public:
       : accessor(BufferRef, PropertyList, CodeLoc) {
     adjustAccPropsInBuf(BufferRef);
   }
-#endif
 
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename = detail::enable_if_t<
@@ -1562,8 +1537,6 @@ public:
   }
 #endif
 
-#if __cplusplus >= 201703L
-
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename TagT,
             typename = detail::enable_if_t<
@@ -1593,8 +1566,6 @@ public:
       : accessor(BufferRef, CommandGroupHandler, PropertyList, CodeLoc) {
     adjustAccPropsInBuf(BufferRef);
   }
-
-#endif
 
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename = detail::enable_if_t<
@@ -1622,8 +1593,6 @@ public:
       const detail::code_location CodeLoc = detail::code_location::current())
       : accessor(BufferRef, AccessRange, {}, PropertyList, CodeLoc) {}
 
-#if __cplusplus >= 201703L
-
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename TagT,
             typename = detail::enable_if_t<
@@ -1653,7 +1622,6 @@ public:
       : accessor(BufferRef, AccessRange, {}, PropertyList, CodeLoc) {
     adjustAccPropsInBuf(BufferRef);
   }
-#endif
 
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename = detail::enable_if_t<
@@ -1682,8 +1650,6 @@ public:
       : accessor(BufferRef, CommandGroupHandler, AccessRange, {}, PropertyList,
                  CodeLoc) {}
 
-#if __cplusplus >= 201703L
-
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename TagT,
             typename = detail::enable_if_t<
@@ -1716,7 +1682,6 @@ public:
                  CodeLoc) {
     adjustAccPropsInBuf(BufferRef);
   }
-#endif
 
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename = detail::enable_if_t<
@@ -1801,8 +1766,6 @@ public:
   }
 #endif
 
-#if __cplusplus >= 201703L
-
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename TagT,
             typename = detail::enable_if_t<
@@ -1832,7 +1795,6 @@ public:
       : accessor(BufferRef, AccessRange, AccessOffset, PropertyList, CodeLoc) {
     adjustAccPropsInBuf(BufferRef);
   }
-#endif
 
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename = detail::enable_if_t<
@@ -1916,8 +1878,6 @@ public:
   }
 #endif
 
-#if __cplusplus >= 201703L
-
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename TagT,
             typename = detail::enable_if_t<
@@ -1950,7 +1910,6 @@ public:
                  PropertyList, CodeLoc) {
     adjustAccPropsInBuf(BufferRef);
   }
-#endif
 
   template <typename... NewPropsT>
   accessor(
@@ -2004,12 +1963,10 @@ public:
 
   template <int Dims = Dimensions, typename = detail::enable_if_t<(Dims > 0)>>
   id<Dimensions> get_offset() const {
-#if __cplusplus >= 201703L
     static_assert(
         !(PropertyListT::template has_property<
             sycl::ext::oneapi::property::no_offset>()),
         "Accessor has no_offset property, get_offset() can not be used");
-#endif
     return detail::convertToArrayOfN<Dimensions, 0>(getOffset());
   }
 
@@ -2127,7 +2084,6 @@ public:
 #endif
   }
 
-#if __cplusplus >= 201703L
   template <typename Property>
   static constexpr bool has_property(
       typename std::enable_if_t<
@@ -2141,7 +2097,6 @@ public:
           ext::oneapi::is_compile_time_property<Property>::value> * = 0) {
     return PropertyListT::template get_property<Property>();
   }
-#endif
 
   bool operator==(const accessor &Rhs) const { return impl == Rhs.impl; }
   bool operator!=(const accessor &Rhs) const { return !(*this == Rhs); }
@@ -2180,14 +2135,10 @@ private:
     size_t TotalOffset = 0;
     detail::dim_loop<Dimensions>([&, this](size_t I) {
       TotalOffset = TotalOffset * impl.MemRange[I];
-#if __cplusplus >= 201703L
       if constexpr (!(PropertyListT::template has_property<
                         sycl::ext::oneapi::property::no_offset>())) {
         TotalOffset += impl.Offset[I];
       }
-#else
-      TotalOffset += impl.Offset[I];
-#endif
     });
 
     return TotalOffset;
@@ -2225,7 +2176,6 @@ private:
     }
   }
 
-#if __cplusplus >= 201703L
   template <typename BufT, typename... PropTypes>
   void adjustAccPropsInBuf(BufT &Buffer) {
     if constexpr (PropertyListT::template has_property<
@@ -2245,10 +2195,7 @@ private:
     Buffer.deleteAccProps(
         sycl::detail::PropWithDataKind::AccPropBufferLocation);
   }
-#endif
 };
-
-#if __cplusplus >= 201703L
 
 template <typename DataT, int Dimensions, typename AllocatorT>
 accessor(buffer<DataT, Dimensions, AllocatorT>)
@@ -2402,7 +2349,6 @@ accessor(buffer<DataT, Dimensions, AllocatorT>, handler &, Type1, Type2, Type3,
                 detail::deduceAccessTarget<Type3, Type4>(target::device),
                 access::placeholder::false_t,
                 ext::oneapi::accessor_property_list<PropsT...>>;
-#endif
 
 /// Local accessor
 ///
@@ -2459,6 +2405,12 @@ protected:
   ConcreteASPtrType MData;
 
 #else
+public:
+  local_accessor_base()
+      : detail::LocalAccessorBaseHost{/*Size*/ sycl::range<3>{0, 0, 0},
+                                      /*Dims*/ 0, /*ElemSize*/ sizeof(DataT)} {}
+
+protected:
   local_accessor_base(const detail::LocalAccessorImplPtr &Impl)
       : detail::LocalAccessorBaseHost{Impl} {}
 
@@ -2498,8 +2450,8 @@ protected:
     return Result;
   }
 
-  template <class Obj>
-  friend Obj detail::createSyclObjFromImpl(decltype(Obj::impl) ImplObj);
+  template <class T>
+  friend T detail::createSyclObjFromImpl(decltype(T::impl) ImplObj);
 
 public:
   using value_type = DataT;
@@ -2649,8 +2601,8 @@ public:
 // TODO: Remove deprecated specialization once no longer needed
 template <typename DataT, int Dimensions, access::mode AccessMode,
           access::placeholder IsPlaceholder>
-class __SYCL_SPECIAL_CLASS accessor<DataT, Dimensions, AccessMode,
-                                    access::target::local, IsPlaceholder>
+class __SYCL_EBO __SYCL_SPECIAL_CLASS accessor<
+    DataT, Dimensions, AccessMode, access::target::local, IsPlaceholder>
     : public local_accessor_base<DataT, Dimensions, AccessMode, IsPlaceholder>,
       public detail::OwnerLessBase<
           accessor<DataT, Dimensions, AccessMode, access::target::local,
@@ -2687,7 +2639,7 @@ private:
 };
 
 template <typename DataT, int Dimensions = 1>
-class __SYCL_SPECIAL_CLASS __SYCL_TYPE(local_accessor) local_accessor
+class __SYCL_EBO __SYCL_SPECIAL_CLASS __SYCL_TYPE(local_accessor) local_accessor
     : public local_accessor_base<DataT, Dimensions, access::mode::read_write,
                                  access::placeholder::false_t>,
       public detail::OwnerLessBase<local_accessor<DataT, Dimensions>> {
@@ -2735,7 +2687,7 @@ public:
   size_t byte_size() const noexcept { return this->size() * sizeof(DataT); }
 
   size_t max_size() const noexcept {
-    return (std::numeric_limits<difference_type>::max)();
+    return empty() ? 0 : (std::numeric_limits<difference_type>::max)();
   }
 
   bool empty() const noexcept { return this->size() == 0; }
@@ -2782,9 +2734,8 @@ public:
 /// \ingroup sycl_api_acc
 template <typename DataT, int Dimensions, access::mode AccessMode,
           access::placeholder IsPlaceholder>
-class __SYCL_SPECIAL_CLASS
-__SYCL_TYPE(accessor) accessor<DataT, Dimensions, AccessMode,
-                               access::target::image, IsPlaceholder>
+class __SYCL_EBO __SYCL_SPECIAL_CLASS __SYCL_TYPE(accessor) accessor<
+    DataT, Dimensions, AccessMode, access::target::image, IsPlaceholder>
     : public detail::image_accessor<DataT, Dimensions, AccessMode,
                                     access::target::image, IsPlaceholder>,
       public detail::OwnerLessBase<
@@ -2848,8 +2799,8 @@ public:
 /// \ingroup sycl_api_acc
 template <typename DataT, int Dimensions, access::mode AccessMode,
           access::placeholder IsPlaceholder>
-class accessor<DataT, Dimensions, AccessMode, access::target::host_image,
-               IsPlaceholder>
+class __SYCL_EBO accessor<DataT, Dimensions, AccessMode,
+                          access::target::host_image, IsPlaceholder>
     : public detail::image_accessor<DataT, Dimensions, AccessMode,
                                     access::target::host_image, IsPlaceholder>,
       public detail::OwnerLessBase<
@@ -2882,9 +2833,8 @@ public:
 /// \ingroup sycl_api_acc
 template <typename DataT, int Dimensions, access::mode AccessMode,
           access::placeholder IsPlaceholder>
-class __SYCL_SPECIAL_CLASS
-__SYCL_TYPE(accessor) accessor<DataT, Dimensions, AccessMode,
-                               access::target::image_array, IsPlaceholder>
+class __SYCL_EBO __SYCL_SPECIAL_CLASS __SYCL_TYPE(accessor) accessor<
+    DataT, Dimensions, AccessMode, access::target::image_array, IsPlaceholder>
     : public detail::image_accessor<DataT, Dimensions + 1, AccessMode,
                                     access::target::image, IsPlaceholder>,
       public detail::OwnerLessBase<
@@ -2942,7 +2892,7 @@ public:
 
 template <typename DataT, int Dimensions = 1,
           access_mode AccessMode = access_mode::read_write>
-class host_accessor
+class __SYCL_EBO host_accessor
     : public accessor<DataT, Dimensions, AccessMode, target::host_buffer,
                       access::placeholder::false_t>,
       public detail::OwnerLessBase<
@@ -3009,8 +2959,6 @@ public:
       const detail::code_location CodeLoc = detail::code_location::current())
       : AccessorT(BufferRef, PropertyList, CodeLoc) {}
 
-#if __cplusplus >= 201703L
-
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename = detail::enable_if_t<IsSameAsBuffer<T, Dims>::value>>
   host_accessor(
@@ -3019,8 +2967,6 @@ public:
       const detail::code_location CodeLoc = detail::code_location::current())
       : host_accessor(BufferRef, PropertyList, CodeLoc) {}
 
-#endif
-
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename = detail::enable_if_t<IsSameAsBuffer<T, Dims>::value>>
   host_accessor(
@@ -3028,8 +2974,6 @@ public:
       const property_list &PropertyList = {},
       const detail::code_location CodeLoc = detail::code_location::current())
       : AccessorT(BufferRef, CommandGroupHandler, PropertyList, CodeLoc) {}
-
-#if __cplusplus >= 201703L
 
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename = detail::enable_if_t<IsSameAsBuffer<T, Dims>::value>>
@@ -3040,8 +2984,6 @@ public:
       const detail::code_location CodeLoc = detail::code_location::current())
       : host_accessor(BufferRef, CommandGroupHandler, PropertyList, CodeLoc) {}
 
-#endif
-
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename = detail::enable_if_t<IsSameAsBuffer<T, Dims>::value>>
   host_accessor(
@@ -3049,8 +2991,6 @@ public:
       range<Dimensions> AccessRange, const property_list &PropertyList = {},
       const detail::code_location CodeLoc = detail::code_location::current())
       : AccessorT(BufferRef, AccessRange, {}, PropertyList, CodeLoc) {}
-
-#if __cplusplus >= 201703L
 
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename = detail::enable_if_t<IsSameAsBuffer<T, Dims>::value>>
@@ -3060,8 +3000,6 @@ public:
       const property_list &PropertyList = {},
       const detail::code_location CodeLoc = detail::code_location::current())
       : host_accessor(BufferRef, AccessRange, {}, PropertyList, CodeLoc) {}
-
-#endif
 
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename = detail::enable_if_t<IsSameAsBuffer<T, Dims>::value>>
@@ -3073,8 +3011,6 @@ public:
       : AccessorT(BufferRef, CommandGroupHandler, AccessRange, {}, PropertyList,
                   CodeLoc) {}
 
-#if __cplusplus >= 201703L
-
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename = detail::enable_if_t<IsSameAsBuffer<T, Dims>::value>>
   host_accessor(
@@ -3084,8 +3020,6 @@ public:
       const detail::code_location CodeLoc = detail::code_location::current())
       : host_accessor(BufferRef, CommandGroupHandler, AccessRange, {},
                       PropertyList, CodeLoc) {}
-
-#endif
 
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename = detail::enable_if_t<IsSameAsBuffer<T, Dims>::value>>
@@ -3097,8 +3031,6 @@ public:
       : AccessorT(BufferRef, AccessRange, AccessOffset, PropertyList, CodeLoc) {
   }
 
-#if __cplusplus >= 201703L
-
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename = detail::enable_if_t<IsSameAsBuffer<T, Dims>::value>>
   host_accessor(
@@ -3108,8 +3040,6 @@ public:
       const detail::code_location CodeLoc = detail::code_location::current())
       : host_accessor(BufferRef, AccessRange, AccessOffset, PropertyList,
                       CodeLoc) {}
-
-#endif
 
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename = detail::enable_if_t<IsSameAsBuffer<T, Dims>::value>>
@@ -3121,8 +3051,6 @@ public:
       : AccessorT(BufferRef, CommandGroupHandler, AccessRange, AccessOffset,
                   PropertyList, CodeLoc) {}
 
-#if __cplusplus >= 201703L
-
   template <typename T = DataT, int Dims = Dimensions, typename AllocatorT,
             typename = detail::enable_if_t<IsSameAsBuffer<T, Dims>::value>>
   host_accessor(
@@ -3133,11 +3061,7 @@ public:
       const detail::code_location CodeLoc = detail::code_location::current())
       : host_accessor(BufferRef, CommandGroupHandler, AccessRange, AccessOffset,
                       PropertyList, CodeLoc) {}
-
-#endif
 };
-
-#if __cplusplus >= 201703L
 
 template <typename DataT, int Dimensions, typename AllocatorT>
 host_accessor(buffer<DataT, Dimensions, AllocatorT>)
@@ -3171,9 +3095,6 @@ template <typename DataT, int Dimensions, typename AllocatorT, typename Type1,
 host_accessor(buffer<DataT, Dimensions, AllocatorT>, Type1, Type2, Type3, Type4,
               Type5) -> host_accessor<DataT, Dimensions,
                                       detail::deduceAccessMode<Type4, Type5>()>;
-
-#endif
-
 } // __SYCL_INLINE_VER_NAMESPACE(_V1)
 } // namespace sycl
 

@@ -3716,15 +3716,15 @@ bool TypeSystemClang::SupportsLanguage(lldb::LanguageType language) {
 Optional<std::string>
 TypeSystemClang::GetCXXClassName(const CompilerType &type) {
   if (!type)
-    return llvm::None;
+    return std::nullopt;
 
   clang::QualType qual_type(ClangUtil::GetCanonicalQualType(type));
   if (qual_type.isNull())
-    return llvm::None;
+    return std::nullopt;
 
   clang::CXXRecordDecl *cxx_record_decl = qual_type->getAsCXXRecordDecl();
   if (!cxx_record_decl)
-    return llvm::None;
+    return std::nullopt;
 
   return std::string(cxx_record_decl->getIdentifier()->getNameStart());
 }
@@ -4719,7 +4719,7 @@ TypeSystemClang::GetBitSize(lldb::opaque_compiler_type_t type,
       if (GetCompleteType(type))
         return getASTContext().getTypeSize(qual_type);
       else
-        return None;
+        return std::nullopt;
       break;
 
     case clang::Type::ObjCInterface:
@@ -4769,7 +4769,7 @@ TypeSystemClang::GetBitSize(lldb::opaque_compiler_type_t type,
         return bit_size;
     }
   }
-  return None;
+  return std::nullopt;
 }
 
 llvm::Optional<size_t>
@@ -4964,6 +4964,21 @@ lldb::Encoding TypeSystemClang::GetEncoding(lldb::opaque_compiler_type_t type,
     case clang::BuiltinType::OCLIntelSubgroupAVCImeResultDualRefStreamout:
     case clang::BuiltinType::OCLIntelSubgroupAVCImeSingleRefStreamin:
     case clang::BuiltinType::OCLIntelSubgroupAVCImeDualRefStreamin:
+      break;
+
+    // SPIRV builtin types.
+    case clang::BuiltinType::SampledOCLImage1dRO:
+    case clang::BuiltinType::SampledOCLImage1dArrayRO:
+    case clang::BuiltinType::SampledOCLImage1dBufferRO:
+    case clang::BuiltinType::SampledOCLImage2dRO:
+    case clang::BuiltinType::SampledOCLImage2dArrayRO:
+    case clang::BuiltinType::SampledOCLImage2dDepthRO:
+    case clang::BuiltinType::SampledOCLImage2dArrayDepthRO:
+    case clang::BuiltinType::SampledOCLImage2dMSAARO:
+    case clang::BuiltinType::SampledOCLImage2dArrayMSAARO:
+    case clang::BuiltinType::SampledOCLImage2dMSAADepthRO:
+    case clang::BuiltinType::SampledOCLImage2dArrayMSAADepthRO:
+    case clang::BuiltinType::SampledOCLImage3dRO:
       break;
 
     // PowerPC -- Matrix Multiply Assist
@@ -5345,7 +5360,7 @@ GetDynamicArrayInfo(TypeSystemClang &ast, SymbolFile *sym_file,
     if (auto *metadata = ast.GetMetadata(qual_type.getTypePtr()))
       return sym_file->GetDynamicArrayInfoForUID(metadata->GetUserID(),
                                                  exe_ctx);
-  return llvm::None;
+  return std::nullopt;
 }
 
 uint32_t TypeSystemClang::GetNumChildren(lldb::opaque_compiler_type_t type,
@@ -7290,11 +7305,11 @@ TypeSystemClang::GetIntegralTemplateArgument(lldb::opaque_compiler_type_t type,
   const clang::ClassTemplateSpecializationDecl *template_decl =
       GetAsTemplateSpecialization(type);
   if (!template_decl)
-    return llvm::None;
+    return std::nullopt;
 
   const auto *arg = GetNthTemplateArgument(template_decl, idx, expand_pack);
   if (!arg || arg->getKind() != clang::TemplateArgument::Integral)
-    return llvm::None;
+    return std::nullopt;
 
   return {{arg->getAsIntegral(), GetType(arg->getIntegralType())}};
 }
@@ -9859,7 +9874,7 @@ void TypeSystemClang::RequireCompleteType(CompilerType type) {
   const clang::TagDecl *td = ClangUtil::GetAsTagDecl(type);
   auto ts = type.GetTypeSystem().dyn_cast_or_null<TypeSystemClang>();
   if (ts)
-    ts->GetMetadata(td)->SetIsForcefullyCompleted();
+    ts->SetDeclIsForcefullyCompleted(td);
 }
 
 namespace {
@@ -9890,7 +9905,7 @@ public:
 } // namespace
 
 char ScratchTypeSystemClang::ID;
-const std::nullopt_t ScratchTypeSystemClang::DefaultAST = llvm::None;
+const std::nullopt_t ScratchTypeSystemClang::DefaultAST = std::nullopt;
 
 ScratchTypeSystemClang::ScratchTypeSystemClang(Target &target,
                                                llvm::Triple triple)
@@ -10061,4 +10076,15 @@ bool TypeSystemClang::IsForcefullyCompleted(lldb::opaque_compiler_type_t type) {
     }
   }
   return false;
+}
+
+bool TypeSystemClang::SetDeclIsForcefullyCompleted(const clang::TagDecl *td) {
+  if (td == nullptr)
+    return false;
+  ClangASTMetadata *metadata = GetMetadata(td);
+  if (metadata == nullptr)
+    return false;
+  m_has_forcefully_completed_types = true;
+  metadata->SetIsForcefullyCompleted();
+  return true;
 }

@@ -57,6 +57,7 @@
 #include "llvm/Transforms/Utils/Debugify.h"
 #include <algorithm>
 #include <memory>
+#include <optional>
 using namespace llvm;
 using namespace opt_tool;
 
@@ -250,12 +251,12 @@ static cl::opt<bool> RemarksWithHotness(
     cl::desc("With PGO, include profile count in optimization remarks"),
     cl::Hidden);
 
-static cl::opt<Optional<uint64_t>, false, remarks::HotnessThresholdParser>
+static cl::opt<std::optional<uint64_t>, false, remarks::HotnessThresholdParser>
     RemarksHotnessThreshold(
         "pass-remarks-hotness-threshold",
         cl::desc("Minimum profile count required for "
                  "an optimization remark to be output. "
-                 "Use 'auto' to apply the threshold from profile summary."),
+                 "Use 'auto' to apply the threshold from profile summary"),
         cl::value_desc("N or 'auto'"), cl::init(0), cl::Hidden);
 
 static cl::opt<std::string>
@@ -381,7 +382,8 @@ static bool shouldPinPassToLegacyPM(StringRef Pass) {
       "dot-regions",          "dot-regions-only",
       "view-regions",         "view-regions-only",
       "select-optimize",      "expand-large-div-rem",
-      "structurizecfg",       "fix-irreducible"};
+      "structurizecfg",       "fix-irreducible",
+      "expand-large-fp-convert"};
   for (const auto &P : PassNamePrefix)
     if (Pass.startswith(P))
       return true;
@@ -428,6 +430,7 @@ int main(int argc, char **argv) {
   // For codegen passes, only passes that do IR to IR transformation are
   // supported.
   initializeExpandLargeDivRemLegacyPassPass(Registry);
+  initializeExpandLargeFpConvertLegacyPassPass(Registry);
   initializeExpandMemCmpPassPass(Registry);
   initializeScalarizeMaskedMemIntrinLegacyPassPass(Registry);
   initializeSelectOptimizePass(Registry);
@@ -489,6 +492,15 @@ int main(int argc, char **argv) {
   const bool UseNPM = (EnableNewPassManager && !shouldForceLegacyPM()) ||
                       PassPipeline.getNumOccurrences() > 0;
 
+  if (UseNPM && !PassList.empty()) {
+    errs() << "The `opt -passname` syntax for the new pass manager is "
+              "not supported, please use `opt -passes=<pipeline>` (or the `-p` "
+              "alias for a more concise version).\n";
+    errs() << "See https://llvm.org/docs/NewPassManager.html#invoking-opt "
+              "for more details on the pass pipeline syntax.\n\n";
+    return 1;
+  }
+
   if (!UseNPM && PluginList.size()) {
     errs() << argv[0] << ": " << PassPlugins.ArgStr
            << " specified with legacy PM.\n";
@@ -522,9 +534,9 @@ int main(int argc, char **argv) {
   std::unique_ptr<ToolOutputFile> RemarksFile = std::move(*RemarksFileOrErr);
 
   // Load the input module...
-  auto SetDataLayout = [](StringRef) -> Optional<std::string> {
+  auto SetDataLayout = [](StringRef) -> std::optional<std::string> {
     if (ClDataLayout.empty())
-      return None;
+      return std::nullopt;
     return ClDataLayout;
   };
   std::unique_ptr<Module> M;
@@ -663,33 +675,19 @@ int main(int argc, char **argv) {
              "-debug-pass-manager, or use the legacy PM (-enable-new-pm=0)\n";
       return 1;
     }
-    if (PassPipeline.getNumOccurrences() > 0 && PassList.size() > 0) {
-      errs()
-          << "Cannot specify passes via both -foo-pass and --passes=foo-pass\n";
-      return 1;
-    }
     auto NumOLevel = OptLevelO0 + OptLevelO1 + OptLevelO2 + OptLevelO3 +
                      OptLevelOs + OptLevelOz;
     if (NumOLevel > 1) {
       errs() << "Cannot specify multiple -O#\n";
       return 1;
     }
-    if (NumOLevel > 0 &&
-        (PassPipeline.getNumOccurrences() > 0 || PassList.size() > 0)) {
+    if (NumOLevel > 0 && (PassPipeline.getNumOccurrences() > 0)) {
       errs() << "Cannot specify -O# and --passes=/--foo-pass, use "
                 "-passes='default<O#>,other-pass'\n";
       return 1;
     }
-    if (!PassList.empty()) {
-      errs() << "The `opt -passname` syntax for the new pass manager is "
-                "deprecated, please use `opt -passes=<pipeline>` (or the `-p` "
-                "alias for a more concise version).\n";
-      errs() << "See https://llvm.org/docs/NewPassManager.html#invoking-opt "
-                "for more details on the pass pipeline syntax.\n\n";
-    }
     std::string Pipeline = PassPipeline;
 
-    SmallVector<StringRef, 4> Passes;
     if (OptLevelO0)
       Pipeline = "default<O0>";
     if (OptLevelO1)
@@ -702,8 +700,6 @@ int main(int argc, char **argv) {
       Pipeline = "default<Os>";
     if (OptLevelOz)
       Pipeline = "default<Oz>";
-    for (const auto &P : PassList)
-      Passes.push_back(P->getPassArgument());
     OutputKind OK = OK_NoOutput;
     if (!NoOutput)
       OK = OutputAssembly
@@ -721,7 +717,7 @@ int main(int argc, char **argv) {
     // layer.
     return runPassPipeline(argv[0], *M, TM.get(), &TLII, Out.get(),
                            ThinLinkOut.get(), RemarksFile.get(), Pipeline,
-                           Passes, PluginList, OK, VK, PreserveAssemblyUseListOrder,
+                           PluginList, OK, VK, PreserveAssemblyUseListOrder,
                            PreserveBitcodeUseListOrder, EmitSummaryIndex,
                            EmitModuleHash, EnableDebugify,
                            VerifyDebugInfoPreserve)

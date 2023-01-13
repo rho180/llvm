@@ -4,6 +4,7 @@ add_llvm_library(sycl-fusion
    lib/KernelFusion.cpp
    lib/JITContext.cpp
    lib/translation/SPIRVLLVMTranslation.cpp
+   lib/fusion/FusionPipeline.cpp
    lib/fusion/FusionHelper.cpp
    lib/fusion/ModuleHelper.cpp
    lib/helper/ConfigHelper.cpp
@@ -34,8 +35,18 @@ find_package(Threads REQUIRED)
 target_link_libraries(sycl-fusion
   PRIVATE
   LLVMSPIRVLib
+  SYCLKernelFusionPasses
   ${CMAKE_THREAD_LIBS_INIT}
 )
+
+if(NOT MSVC AND NOT APPLE)
+  # Manage symbol visibility through the linker to make sure no LLVM symbols
+  # are exported and confuse the drivers.
+  set(linker_script "${CMAKE_CURRENT_SOURCE_DIR}/ld-version-script.txt")
+  target_link_libraries(
+    sycl-fusion PRIVATE "-Wl,--version-script=${linker_script}")
+  set_target_properties(sycl-fusion PROPERTIES LINK_DEPENDS ${linker_script})
+endif()
 
 install(TARGETS sycl-fusion
   LIBRARY DESTINATION "lib${LLVM_LIBDIR_SUFFIX}" COMPONENT sycl-fusion
