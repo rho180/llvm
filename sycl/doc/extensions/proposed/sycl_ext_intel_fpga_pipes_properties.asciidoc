@@ -149,6 +149,23 @@ struct protocol_key {
   using value_t = oneapi::experimental::property_value<
       protocol_key, std::integral_constant<protocol_name, Protocol>>;
 };
+
+template <int Latency>
+inline constexpr ready_latency_key::value_t<Latency> ready_latency;
+
+template <int Bits>
+inline constexpr bits_per_symbol_key::value_t<Bits> bits_per_symbol;
+
+template <bool Valid>
+inline constexpr uses_valid_key::value_t<Valid> uses_valid;
+
+template <bool HighOrder>
+inline constexpr first_symbol_in_high_order_bits_key::value_t<HighOrder>
+    first_symbol_in_high_order_bits;
+
+template <protocol_name Protocol>
+inline constexpr protocol_key::value_t<Protocol> protocol;
+
 } // namespace sycl::ext::intel::experimental
 ```
 
@@ -192,7 +209,8 @@ upstream source must provide valid data on every cycle that ready is asserted.
 This is equivalent to changing the pipe read calls to tryRead and assuming that
 success is always true.
 
-If set to false, min_capacity (set in and ready_latency must be 0.
+If set to false, the min_capacity pipe class template parameter and ready_latency
+property must be 0.
 
 This property is not guaranteed to be respected if the pipe is an inter-kernel
 pipe. The compiler is allowed to optimize the pipe if both sides are visible.
