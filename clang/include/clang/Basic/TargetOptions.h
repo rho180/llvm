@@ -45,7 +45,7 @@ public:
   std::string ABI;
 
   /// The EABI version to use
-  llvm::EABI EABIVersion;
+  llvm::EABI EABIVersion = llvm::EABI::Default;
 
   /// If given, the version string of the linker in use.
   std::string LinkerVersion;
@@ -91,7 +91,7 @@ public:
     COV_5 = 500,
   };
   /// \brief Code object version for AMDGPU.
-  CodeObjectVersionKind CodeObjectVersion;
+  CodeObjectVersionKind CodeObjectVersion = CodeObjectVersionKind::COV_None;
 
   // The code model to be used as specified by the user. Corresponds to
   // CodeModel::Model enum defined in include/llvm/Support/CodeGen.h, plus
@@ -113,8 +113,14 @@ public:
   /// The version of the darwin target variant SDK which was used during the
   /// compilation.
   llvm::VersionTuple DarwinTargetVariantSDKVersion;
+
+  /// The validator version for dxil.
+  std::string DxilValidatorVersion;
+
+  /// The entry point name for HLSL shader being compiled as specified by -E.
+  std::string HLSLEntry;
 };
 
-}  // end namespace clang
+} // end namespace clang
 
 #endif

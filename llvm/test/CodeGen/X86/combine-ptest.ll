@@ -150,6 +150,25 @@ define i32 @ptestnzc_256_invert0_commute(<4 x i64> %c, <4 x i64> %d, i32 %a, i32
 }
 
 ;
+; testc(X,~X) -> testc(X,-1)
+;
+
+define i32 @ptestc_128_not(<2 x i64> %c, <2 x i64> %d, i32 %a, i32 %b) {
+; CHECK-LABEL: ptestc_128_not:
+; CHECK:       # %bb.0:
+; CHECK-NEXT:    movl %edi, %eax
+; CHECK-NEXT:    vpcmpeqd %xmm1, %xmm1, %xmm1
+; CHECK-NEXT:    vptest %xmm1, %xmm0
+; CHECK-NEXT:    cmovael %esi, %eax
+; CHECK-NEXT:    retq
+  %t1 = xor <2 x i64> %c, <i64 -1, i64 -1>
+  %t2 = call i32 @llvm.x86.sse41.ptestc(<2 x i64> %c, <2 x i64> %t1)
+  %t3 = icmp ne i32 %t2, 0
+  %t4 = select i1 %t3, i32 %a, i32 %b
+  ret i32 %t4
+}
+
+;
 ; testz(AND(X,Y),AND(X,Y)) -> testz(X,Y)
 ;
 
@@ -279,7 +298,7 @@ define i32 @ptestz_256_allones1(<4 x i64> %c, i32 %a, i32 %b) {
   ret i32 %t3
 }
 
-define zeroext i1 @PR38522(<16 x i8>* %x, <16 x i8>* %y) {
+define zeroext i1 @PR38522(ptr %x, ptr %y) {
 ; CHECK-LABEL: PR38522:
 ; CHECK:       # %bb.0: # %start
 ; CHECK-NEXT:    vmovdqa (%rdi), %xmm0
@@ -288,8 +307,8 @@ define zeroext i1 @PR38522(<16 x i8>* %x, <16 x i8>* %y) {
 ; CHECK-NEXT:    sete %al
 ; CHECK-NEXT:    retq
 start:
-  %0 = load <16 x i8>, <16 x i8>* %x, align 16
-  %1 = load <16 x i8>, <16 x i8>* %y, align 16
+  %0 = load <16 x i8>, ptr %x, align 16
+  %1 = load <16 x i8>, ptr %y, align 16
   %2 = icmp sle <16 x i8> %0, %1
   %3 = sext <16 x i1> %2 to <16 x i8>
   %4 = bitcast <16 x i8> %3 to <2 x i64>

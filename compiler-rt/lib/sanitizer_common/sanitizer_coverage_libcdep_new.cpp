@@ -14,6 +14,7 @@
 #  include "sanitizer_allocator_internal.h"
 #  include "sanitizer_atomic.h"
 #  include "sanitizer_common.h"
+#  include "sanitizer_common/sanitizer_stacktrace.h"
 #  include "sanitizer_file.h"
 #  include "sanitizer_interface_internal.h"
 
@@ -222,7 +223,8 @@ SANITIZER_INTERFACE_ATTRIBUTE void __sanitizer_dump_coverage(const uptr* pcs,
 
 SANITIZER_INTERFACE_WEAK_DEF(void, __sanitizer_cov_trace_pc_guard, u32* guard) {
   if (!*guard) return;
-  __sancov::pc_guard_controller.TracePcGuard(guard, GET_CALLER_PC() - 1);
+  __sancov::pc_guard_controller.TracePcGuard(
+      guard, StackTrace::GetPreviousInstructionPc(GET_CALLER_PC()));
 }
 
 SANITIZER_INTERFACE_WEAK_DEF(void, __sanitizer_cov_trace_pc_guard_init,
@@ -257,6 +259,16 @@ SANITIZER_INTERFACE_WEAK_DEF(void, __sanitizer_cov_trace_div4, void) {}
 SANITIZER_INTERFACE_WEAK_DEF(void, __sanitizer_cov_trace_div8, void) {}
 SANITIZER_INTERFACE_WEAK_DEF(void, __sanitizer_cov_trace_gep, void) {}
 SANITIZER_INTERFACE_WEAK_DEF(void, __sanitizer_cov_trace_pc_indir, void) {}
+SANITIZER_INTERFACE_WEAK_DEF(void, __sanitizer_cov_load1, void){}
+SANITIZER_INTERFACE_WEAK_DEF(void, __sanitizer_cov_load2, void){}
+SANITIZER_INTERFACE_WEAK_DEF(void, __sanitizer_cov_load4, void){}
+SANITIZER_INTERFACE_WEAK_DEF(void, __sanitizer_cov_load8, void){}
+SANITIZER_INTERFACE_WEAK_DEF(void, __sanitizer_cov_load16, void){}
+SANITIZER_INTERFACE_WEAK_DEF(void, __sanitizer_cov_store1, void){}
+SANITIZER_INTERFACE_WEAK_DEF(void, __sanitizer_cov_store2, void){}
+SANITIZER_INTERFACE_WEAK_DEF(void, __sanitizer_cov_store4, void){}
+SANITIZER_INTERFACE_WEAK_DEF(void, __sanitizer_cov_store8, void){}
+SANITIZER_INTERFACE_WEAK_DEF(void, __sanitizer_cov_store16, void){}
 SANITIZER_INTERFACE_WEAK_DEF(void, __sanitizer_cov_8bit_counters_init,
                              char* start, char* end) {
   __sancov::SingletonCounterCoverage::Cov8bitCountersInit(start, end);
@@ -270,7 +282,14 @@ SANITIZER_INTERFACE_WEAK_DEF(void, __sanitizer_cov_pcs_init, const uptr* beg,
 // Weak definition for code instrumented with -fsanitize-coverage=stack-depth
 // and later linked with code containing a strong definition.
 // E.g., -fsanitize=fuzzer-no-link
+// FIXME: Update Apple deployment target so that thread_local is always
+// supported, and remove the #if.
+// FIXME: Figure out how this should work on Windows, exported thread_local
+// symbols are not supported:
+// "data with thread storage duration may not have dll interface"
+#if !SANITIZER_APPLE && !SANITIZER_WINDOWS
 SANITIZER_INTERFACE_ATTRIBUTE SANITIZER_WEAK_ATTRIBUTE
-SANITIZER_TLS_INITIAL_EXEC_ATTRIBUTE uptr __sancov_lowest_stack;
+thread_local uptr __sancov_lowest_stack;
+#endif
 
 #endif  // !SANITIZER_FUCHSIA

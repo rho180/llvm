@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 // UNSUPPORTED: c++03, c++11, c++14, c++17
-// UNSUPPORTED: libcpp-no-concepts
 
 // template<class T, class U>
 // concept equality_comparable_with = // see below
@@ -1121,5 +1120,3 @@ static_assert(
 static_assert(
     !check_equality_comparable_with<one_way_ne, explicit_operators>());
 } // namespace types_fit_for_purpose
-
-int main(int, char**) { return 0; }

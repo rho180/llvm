@@ -10,6 +10,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/DebugInfo/PDB/IPDBEnumChildren.h"
 #include "llvm/DebugInfo/PDB/IPDBLineNumber.h"
 #include "llvm/DebugInfo/PDB/IPDBRawSymbol.h"
 #include "llvm/DebugInfo/PDB/IPDBSession.h"
@@ -260,7 +261,7 @@ void UDTLayoutBase::initializeChildren(const PDBSymbol &Sym) {
     // physically lay it out if it's a topmost derived class.
     addChildToLayout(std::move(BL));
   }
-  VirtualBases = makeArrayRef(AllBases).drop_front(NonVirtualBases.size());
+  VirtualBases = ArrayRef(AllBases).drop_front(NonVirtualBases.size());
 
   if (Parent != nullptr)
     LayoutSize = UsedBytes.find_last() + 1;

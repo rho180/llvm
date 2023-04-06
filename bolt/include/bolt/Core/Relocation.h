@@ -14,7 +14,7 @@
 #ifndef BOLT_CORE_RELOCATION_H
 #define BOLT_CORE_RELOCATION_H
 
-#include "llvm/ADT/Triple.h"
+#include "llvm/TargetParser/Triple.h"
 
 namespace llvm {
 class MCStreamer;
@@ -49,14 +49,19 @@ struct Relocation {
   /// Used to validate relocation correctness.
   uint64_t Value;
 
-  /// Return size of the given relocation \p Type.
+  /// Return size in bytes of the given relocation \p Type.
   static size_t getSizeForType(uint64_t Type);
 
   /// Return size of this relocation.
   size_t getSize() const { return getSizeForType(Type); }
 
-  /// Handle special cases when relocation should not be processed by bolt
-  static bool skipRelocationProcess(uint64_t Type, uint64_t Contents);
+  /// Skip relocations that we don't want to handle in BOLT
+  static bool skipRelocationType(uint64_t Type);
+
+  /// Handle special cases when relocation should not be processed by BOLT or
+  /// change relocation \p Type to proper one before continuing if \p Contents
+  /// and \P Type mismatch occured.
+  static bool skipRelocationProcess(uint64_t &Type, uint64_t Contents);
 
   // Adjust value depending on relocation type (make it PC relative or not)
   static uint64_t adjustValue(uint64_t Type, uint64_t Value,
@@ -76,6 +81,9 @@ struct Relocation {
 
   /// Return true if relocation type implies the creation of a GOT entry
   static bool isGOT(uint64_t Type);
+
+  /// Special relocation type that allows the linker to modify the instruction.
+  static bool isX86GOTPCRELX(uint64_t Type);
 
   /// Return true if relocation type is NONE
   static bool isNone(uint64_t Type);
@@ -97,6 +105,12 @@ struct Relocation {
 
   /// Return code for a PC-relative 8-byte relocation
   static uint64_t getPC64();
+
+  /// Return code for a ABS 8-byte relocation
+  static uint64_t getAbs64();
+
+  /// Return code for a RELATIVE relocation
+  static uint64_t getRelative();
 
   /// Return true if this relocation is PC-relative. Return false otherwise.
   bool isPCRelative() const { return isPCRelative(Type); }

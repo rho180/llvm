@@ -29,27 +29,14 @@ ELF Improvements
 Breaking changes
 ----------------
 
-* The GNU ld incompatible ``--no-define-common`` has been removed.
-* The obscure ``-dc``/``-dp`` options have been removed.
-* ``-d`` is now ignored.
-
 COFF Improvements
 -----------------
-
-* Added autodetection of MSVC toolchain, a la clang-cl.  Also added /winsysroot
-  support for explicit specification of MSVC toolchain location.
-  (`D118070 <https://reviews.llvm.org/D118070>`_)
-* ...
 
 MinGW Improvements
 ------------------
 
-* ...
-
 MachO Improvements
 ------------------
-
-* Item 1.
 
 WebAssembly Improvements
 ------------------------

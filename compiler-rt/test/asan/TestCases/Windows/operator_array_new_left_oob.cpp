@@ -1,3 +1,5 @@
+// UNSUPPORTED: target={{.*-windows-gnu}}
+
 // RUN: %clang_cl_asan -Od %s -Fe%t
 // RUN: not %run %t 2>&1 | FileCheck %s
 
@@ -8,7 +10,7 @@ int main() {
 // CHECK: WRITE of size 1 at [[ADDR]] thread T0
 // CHECK-NEXT: {{#0 .* main .*operator_array_new_left_oob.cpp}}:[[@LINE-3]]
 //
-// CHECK: [[ADDR]] is located 1 bytes to the left of 42-byte region
+// CHECK: [[ADDR]] is located 1 bytes before 42-byte region
 // CHECK-LABEL: allocated by thread T0 here:
 // FIXME: The 'operator new' frame should have [].
 // CHECK-NEXT: {{#0 .* operator new}}

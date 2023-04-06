@@ -28,7 +28,7 @@ Explicit SIMD APIs can be used only in code to be executed on Intel graphics
 architecture devices and the host device for now. Attempt to run such code on
 other devices will result in error. 
 
-All the ESIMD APIs are defined in the `sycl::ext::intel::experimental::esimd`
+All the ESIMD APIs are defined in the `sycl::ext::intel::esimd`
 namespace.
 
 Kernels and `SYCL_EXTERNAL` functions using ESP must be explicitly marked with
@@ -37,8 +37,8 @@ functions will always return `1`.
 
 *Functor kernel*
 ```cpp
-#include <CL/sycl.hpp>
-#include <sycl/ext/intel/experimental/esimd.hpp>
+#include <sycl/sycl.hpp>
+#include <sycl/ext/intel/esimd.hpp>
 
 using AccTy = sycl::accessor<int, 1, sycl::access::mode::read_write,
   sycl::target::device>;
@@ -56,13 +56,13 @@ private:
 
 *Lambda kernel and function*
 ```cpp
-#include <CL/sycl.hpp>
-#include <sycl/ext/intel/experimental/esimd.hpp>
+#include <sycl/sycl.hpp>
+#include <sycl/ext/intel/esimd.hpp>
 
 #include <iostream>
 
-using namespace sycl::ext::intel::experimental::esimd;
-using namespace sycl::ext::intel::experimental;
+using namespace sycl::ext::intel::esimd;
+using namespace sycl::ext::intel;
 using namespace sycl;
 using AccTy = accessor<float, 1, access::mode::read_write, target::device>;
 
@@ -86,7 +86,7 @@ int main(void) {
       simd<float, 8> Val = esimd::block_load<float, 8>(Acc1, 0);
       sycl_device_f(Acc2, Val);
     });
-  });
+  }).wait();
 }
 ```
 
@@ -104,9 +104,9 @@ device-side API
 - 2D and 3D accessors
 - Constant accessors
 - `sycl::accessor::get_pointer()`. All memory accesses through an accessor are
-done via explicit APIs; e.g. `sycl::ext::intel::experimental::esimd::block_store(acc, offset)`
+done via explicit APIs; e.g. `sycl::ext::intel::esimd::block_store(acc, offset)`
 - Accessors with offsets and/or access range specified
-- `sycl::sampler` and `sycl::stream` classes  
+- `sycl::sampler` and `sycl::stream` classes
 
 
 ## Core Explicit SIMD programming APIs
@@ -122,7 +122,7 @@ The element type must either be a vectorizable type. or the `sycl::half` type.
 The set of vectorizable types is the
 set of fundamental SYCL arithmetic types excluding `bool`. The length of the
 vector is the second template parameter.
-See the complete [API reference](https://intel.github.io/llvm-docs/doxygen/classcl_1_1sycl_1_1ext_1_1intel_1_1experimental_1_1esimd_1_1simd.html) for the `simd` class for more details.
+See the complete [API reference](https://intel.github.io/llvm-docs/doxygen/classcl_1_1____ESIMD__NS_1_1simd.html#details) for the `simd` class for more details.
 
 ESIMD compiler back-end does the best it can to map each `simd` class object to a
 contiguous block of registers in the general register file (GRF).
@@ -418,7 +418,7 @@ See more details in the API documentation
 
 #### Extended math
 ESIMD supports what is known as "extended math" set of math operations,
-providing correponding API in the `sycl::ext::intel::experimental::esimd`
+providing correponding API in the `sycl::ext::intel::esimd`
 namespace. Those operations are mapped to efficient hardware instructions and
 thus have accuracy provided by hardware, which often does not match one required
 by the SYCL specification. The table below shows the supported extended math
@@ -471,6 +471,204 @@ ESIMD supports the following non-standard math functions implemented in hardware
 See more details in the API documentation
 [page TODO](https://intel.github.io/llvm-docs/doxygen).
 
+### Dot Product Accumulate Systolic - `DPAS` API
+
+DPAS is the matrix multiply-add-and-accumulate operation performed on limited size matrices/tiles.
+
+The input and output matrix/tile dimensions are parametrizable to certain extent and depend on the element types of operands and the target device.   
+The operands and returns of DPAS API may require vertical or horizontal packing or unpacking. Please see [more details](#input-and-output-matrices-representation-as-simd-vectors) below.
+
+#### DPAS API definition
+
+As a member XMX (Xe Matrix eXtension) family of GPU operations it is included into `sycl::ext::intel::esimd::xmx` namespace:
+
+```cpp
+/// Describes the element types in the input matrices.
+/// Used as template parameter to dpas() and may be omitted when
+/// it is deducible from the element types of input matrices.
+enum class dpas_argument_type {
+  Invalid = 0,
+  u1 = 1, // unsigned 1 bit
+  s1 = 2, // signed 1 bit
+  u2 = 3, // unsigned 2 bits
+  s2 = 4, // signed 2 bits
+  u4 = 5, // unsigned 4 bits
+  s4 = 6, // signed 4 bits
+  u8 = 7, // unsigned 8 bits
+  s8 = 8, // signed 8 bits
+  bf16 = 9, // bfloat 16
+  fp16 = 10, // half float
+  tf32 = 12, // tensor float 32
+};
+
+/// Computes the result of matrix operations: Result = A x B + C;
+template <
+    int SystolicDepth, int RepeatCount,
+    typename T, typename CT, typename CT, typename BT, typename AT,
+    dpas_argument_type BPrecision = detail::dpas_precision_from_type<BT>(),
+    dpas_argument_type APrecision = detail::dpas_precision_from_type<AT>(),
+    int N, int BN, int AN>
+simd<T, N> dpas(simd<CT, N> C, simd<BT, BN> B, simd<AT, AN> A);
+
+/// Computes the result of matrix operations: Result = A x B;
+template <
+    int SystolicDepth, int RepeatCount, typename T, typename BT, typename AT,
+    dpas_argument_type BPrecision = detail::dpas_precision_from_type<BT>(),
+    dpas_argument_type APrecision = detail::dpas_precision_from_type<AT>(),
+    int BN, int AN>
+auto dpas(simd<BT, BN> B, simd<AT, AN> A);
+```
+
+#### Example of DPAS usage
+
+Such `xmx::dpas()` call may be translated into such matrix operations:
+```cpp
+constexpr int M = 4; // aka RepeatCount. It is in range 1 to 8.
+constexpr int N = 8; // aka ExecutionSize, It must be 8 for ATS and 16 for PVC.
+constexpr int K = 8; // K is computed as (SystolicDepth * OperationsPerChannel), gets values from {8,16,32,64}
+                     // where:
+                     //     SystolicDepth is 8 for all known target devices.
+                     //     OperationsPerChannel is min(32 / MaxBitSizeOfElement(A, B), 8), and gets values from {1,2,4,8}.
+                     // Examples for K:
+                     //     A - tf32, B - tf32 ==> K = 8
+                     //     A - fp16, B - fp16  ==> K = 16
+                     //     A - s8, B - s8      ==> K = 32
+                     //     A - u4, B - u2      ==> K = 64
+                     //     A - s2, B - s2      ==> K = 64
+simd<ext::intel::experimental::esimd::tfloat32, M*K> A = initA();
+simd<ext::intel::experimental::esimd::tfloat32, K*N> B = initB();
+simd<float, M*N> C = initC();
+
+simd<float, M*N> Result = xmx::dpas<8,4>(C, B, A); // Result = AxB + C
+```
+<table><tr>
+<td><table>A (MxK)
+<tr><td>1</td><td>2</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td></tr>
+<tr><td>0</td><td>1</td><td>0</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td></tr>
+<tr><td>2</td><td>3</td><td>4</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td></tr>
+<tr><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td></tr>
+</table></td>
+<td>*</td>
+<td><table>B (KxN)
+<tr><td>2</td><td>5</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td></tr>
+<tr><td>6</td><td>7</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td></tr>
+<tr><td>1</td><td>8</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td></tr>
+<tr><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td></tr>
+<tr><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td></tr>
+<tr><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td></tr>
+<tr><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td></tr>
+<tr><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td></tr>
+</table></td>
+<td>+</td>
+<td><table>C (MxN)
+<tr><td>1</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+<tr><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+<tr><td>2</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+<tr><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+</table></td>
+<td>=</td>
+<td><table>R (MxN)
+<tr><td>21</td><td>32</td><td>9</td><td>9</td><td>9</td><td>9</td><td>9</td><td>9</td></tr>
+<tr><td>11</td><td>12</td><td>6</td><td>6</td><td>6</td><td>6</td><td>6</td><td>6</td></tr>
+<tr><td>32</td><td>68</td><td>14</td><td>14</td><td>14</td><td>14</td><td>14</td><td>14</td></tr>
+<tr><td>14</td><td>25</td><td>8</td><td>8</td><td>8</td><td>8</td><td>8</td><td>8</td></tr>
+</table></td>
+</tr></table>
+
+#### Possible type combinations for `xmx::dpas()`
+
+The element types of input `C`, `A`, `B` matrices and the type of `Result` matrix can
+vary but only certain combinations are permitted
+
+If the target device is DG2 (`N` aka `execution size` must be 8):
+
+| Result | C | B | A |
+|--------|---|---|---|
+| float | float | half | half |
+| float | float | bfloat16 | bfloat16 |
+| unsigned int, int | unsigned int, int | u8,s8,u4,s4,u2,s2 | u8,s8,u4,s4,u2,s2 |
+
+
+If the target device is PVC (`N` aka `execution size` must be 16):
+
+| Result | C | B | A |
+|--------|---|---|---|
+| float, half | float, half | half | half
+| float, bfloat16 | float, bfloat16 | bfloat16 | bfloat16
+| float | float | tfloat32 | tfloat32
+| unsigned int, int | unsigned int, int | u8,s8,u4,s4,u2,s2 | u8,s8,u4,s4,u2,s2 |
+
+#### Input and output matrices representation as simd vectors
+
+The input operands and return of `xmx::dpas()` are represented as `simd` vectors
+containing elements of linearized packed 2 dimensional matrix.
+They also may require horizontal packing or unpacking for `A`, `C`, `Result` before/after usage in `xmx::dpas()` or vertical packing for `B` before passing to `xmx::dpas()`.
+
+#### Horizontal packing for `A`, `C`, and `Result`
+
+The operands `A`, `C` and the `result` of `xmx::dpas()` are horizontally packed into 32-bit elements.
+For input elements with bit-size 8-bit or more, the packing is automatic and any explicit actions on it may be omitted. So, if the matrix `A` has `sycl::half` elements and is interpreted as a 4x8 matrix:
+|||||||||
+|--- |--- |--- |--- |--- |--- |--- |--- |
+| a0 | a1	| a2 | a3 | a4 | a5	| a6 | a7 |
+| b0 | b1	| b2 | b3 | b4 | b5	| b6 | b7 |
+| c0 | c1	| c2 | c3 | c4 | c5	| c6 | c7 |
+| d0 | d1	| d2 | d3 | d4 | d5	| d6 | d7 |
+
+Then the corresponding input `simd` operand (or output `simd` result) looks as simple as {a0, a1, a2, a3, a4, a5, a6, a7, a8, b0, b1, ..., b7, c0, c1, ..., c7, d0, ..., d7}.  
+Matrices with elements smaller than 8-bit they are packed to 1-,2-,or 4-byte elements. So, the operand `A` representing the 4x64 `unpacked` matrix of 4-bit unsigned integers:
+|||||||
+|--- |--- |--- |--- |---  |--- |
+| a0 | a1	| a2 | a3 | ... | a63 |
+| b0 | b1	| b2 | b3 | ... | b63 |
+| c0 | c1	| c2 | c3 | ... | c63 |
+| d0 | d1	| d2 | d3 | ... | d63 |
+
+actually stored as 4x32 matrix of `uint8_t` packed elements (1 uint8_t fits 2 4-bit uinteger ints):
+
+|||||
+|--- |--- |--- |--- |
+| (a1<<4) \| a0 | (a3<<4) \| a2 | ... | (a63<<4) \| a62 |
+| (b1<<4) \| b0 | (b3<<4) \| b2 | ... | (b63<<4) \| b62 |
+| (c1<<4) \| c0 | (c3<<4) \| c2 | ... | (c63<<4) \| c62 |
+| (d1<<4) \| d0 | (d3<<4) \| d2 | ... | (d63<<4) \| d62 |
+
+which then linearized to `simd<uint8_t, 4*32>` as {((a1<<4) | a0), ((a3<<4) | a2), ..., ((a63<<4) | a62), ((b1<<4) | b0), ..., ..., ((d63<<4) | d62)}
+
+The same matrix of 4-bit unsigned elements can be passed to `xmx::dpas` as uint32_t elements. In this case the packed 4x16 matrix of uint32_t elements can be shown as:
+|||||
+|--- |--- |--- |--- |
+| (a7<<28) \| (a6<<24 \| (a5<<20) \| ... \| a0), | ..., | (a63<<28) \| (a62<<24 \| (a61<<20) \| ... \| a55), |
+| (b7<<28) \| (b6<<24 \| (b5<<20) \| ... \| b0), | ..., | (b63<<28) \| (b62<<24 \| (b61<<20) \| ... \| b55), |
+| (c7<<28) \| (c6<<24 \| (c5<<20) \| ... \| a0), | ..., | (c63<<28) \| (c62<<24 \| (c61<<20) \| ... \| c55), |
+| (d7<<28) \| (d6<<24 \| (d5<<20) \| ... \| d0), | ..., | (d63<<28) \| (d62<<24 \| (d61<<20) \| ... \| d55) |
+
+
+#### Vertical packing
+
+The operand `B` is vertically packed into 32-bit elements. This packing is also known as *VNNI*.
+The unpacked 16x8 matrix with `sycl::half` elements:
+|||||||||
+|--- |--- |--- |--- |--- |--- |--- |--- |
+| a0 | a1	| a2 | a3 | a4 | a5	| a6 | a7 |
+| b0 | b1	| b2 | b3 | b4 | b5	| b6 | b7 |
+| c0 | c1	| c2 | c3 | c4 | c5	| c6 | c7 |
+| d0 | d1	| d2 | d3 | d4 | d5	| d6 | d7 |
+| ... | ...	| ... | ... | ... | ...	| ... | ... // 10 rows hidden here
+| o0 | o1	| o2 | o3 | o4 | o5	| o6 | o7 |
+| p0 | p1	| p2 | p3 | p4 | p5	| p6 | p7 |
+
+looks as below if packed as 8x8 matrix with `uint32_t` elements:
+|||||||||
+|--- |--- |--- |--- |--- |--- |--- |--- |
+| (b0<<16)\|a0, | (b1<<16)\|a1, | (b2<<16)\|a2, | (b3<<16)\|a3, | (b4<<16)\|a4, | (b5<<16)\|a5,	| (b6<<16)\|a6, | (b7<<16)\|a7 |
+| (d0<<16)\|c0, | (d1<<16)\|c1, | (d2<<16)\|c2, | (d3<<16)\|c3, | (d4<<16)\|c4, | (d5<<16)\|c5,	| (d6<<16)\|c6, | (d7<<16)\|c7 |
+| ... | ...	| ... | ... | ... | ...	| ... | ... // 5 rows hidden here
+| p0<<16\|o0, | p1<<16\|o1, | p2<<16\|o2, | p3<<16\|o3, | p4<<16\|o4, | p5<<16\|o5,	| p6<<16\|o6, | p7<<16\|o7 |
+
+and is passed to `xmx::dpas()` as simd<uint32_t, 8*8> {(b0<<16)|a0, | (b1<<16)|a1, ..., (b7<<16)|a7, (d0<<16)|c0, ..., ..., p7<<16\|o7}.
+
+Some more examples can be found in test for `xmx::dpas()` in [LIT tests](https://github.com/intel/llvm/tree/sycl/sycl/test-e2e/ESIMD/dpas).
 
 ### Other APIs
 
@@ -511,16 +709,122 @@ ESIMD_PRIVATE ESIMD_REGISTER(32) simd<int, 16> vc;
 ```
 <br>
 
+### `__regcall` Calling convention.
+
+ESIMD supports `__regcall` calling convention (CC) in addition to the default
+SPIR CC. This makes compiler try generate more efficient calls where arguments
+of aggregate types (classes, structs, unions) are passed and values returned via
+registers rather than memory. This matters most for external functions linked on
+binary level, such as functions called via `invoke_simd`. Arguments and return
+values ("ARV") are still passed or returned ("communicated") via a pointer if
+their type is either of the following:
+- a class or struct with deleted copy constructor
+- an empty class or struct
+- a class or struct ending with a flexible array member. For example:
+`class A { int x[]; }`
+
+ARVs of all other aggregate types are communicated by value or "per-field". Some
+fields can be replaced with 1 or 2 integer elements with total size being equal
+or exceeding the total size of fields. The rules for communicating ARVs of these
+types are part of the SPIR-V level function call ABI, and are described below.
+This part of the ABI is defined in terms of LLVM IR types - it basically
+tells how a specific source aggregate type is represented in resulting LLVM IR
+when it (the type) is part of a signature of a function with linkage defined.
+
+Compiler uses aggregate type "unwrapping process" for communicating ARVs.
+Unwrapping a structure with a single field results in the unwrapped type of
+that field, so unwrapping is a recursive process. Unwrapped primitive type is
+the primitive type itself. Structures with pointer fields are not unwrapped.
+For example, unwrapping `Y` defined as
+```cpp
+struct X { int x; };
+struct Y { X x; };
+```
+results in `i32`. Unwrapping `C4` defined as
+```cpp
+struct A4 { char x; };
+struct B4 { A4 a; };
+struct C4 {
+  B4 b;
+  int *ptr;
+};
+```
+results in { `%struct.B4`, `i32 addrspace(4)*` } pair of types. Thus,
+unwrapping can result in a set of a structure, primitive or pointer types -
+the "unwrapped type set".
+
+- If the unwrapped type set has only primitive types, then compiler will "merge"
+  the resulting types if their total size is less than or equal to 8 bytes. The total
+  size is calculated as `sizeof(<top aggregate type>)`, and structure field
+  alignment rules can make it greater than the simple sum of `sizeof` of all
+  the types resulted from unwrapping. [Total size] to [merged type]
+  correspondence is as follows:
+    * 1-2 bytes - short
+    * 3-4 bytes - int
+    * 5-8 bytes - array of 2 ints
+  If the total size exceeds 8, then:
+    * a source parameter of this type is broken down into multiple parameters
+      with types resulted from unwrapping
+    * a source return value of this type keeps it (the type)
+- If the unwrapped type set has non-primitive types, then merging does not
+  happen, in this case unwrapping for the return value does not happen as well.
+
+More examples of the unwrap/merge process:
+
+- For `C5` in
+    ```cpp
+    struct A5a { char x; char y; };
+    struct A5b { char x; char y; };
+    struct B5 { A5a a; A5b b; };
+    struct C5 {
+      B5 b1;
+      B5 b2;
+    };
+    ```
+    The result is `[2 x i32]`. It is not `i32` because of padding rules, as
+    sizeof(C5) is 8 for the SPIRV target.
+- For `C6`
+    ```cpp
+    struct B6 { int *a; int b; };
+    struct C6 {
+      B6 b;
+      char x;
+      char y;
+    
+      C6 foo() { return *this; }
+    };
+    ```
+    the result depends whether this is a type of an argument or a return value.
+    * Argument: { `%struct.B6`, `i8`, `i8` } type set
+    * Return value:  `%struct.C6` type. Where the struct LLVM types are defined
+      as:
+      ```
+      %struct.C6 = type { %struct.B6, i8, i8 }
+      %struct.B6 = type { i32 addrspace(4)*, i32 }
+      ``` 
+
+Note that `__regcall` does not guarantee passing through registers in the final
+generated code. For example, compiler will use a threshold for argument or
+return value size, which is implementation-defined. Values larger than the
+threshold will still be passed by pointer (memory).
+
+Example declaration of a `__regcall` function:
+```cpp
+simd<float, 8> __regcall SCALE(simd<float, 8> v);
+```
+The parameter and the return type in the ABI form will be `<8 x float>`.
+<br>
+
 ## Examples
 ### Vector addition (USM)
 ```cpp
-#include <CL/sycl.hpp>
-#include <sycl/ext/intel/experimental/esimd.hpp>
+#include <sycl/sycl.hpp>
+#include <sycl/ext/intel/esimd.hpp>
 
 #include <iostream>
 
 using namespace sycl;
-using namespace sycl::ext::intel::experimental::esimd;
+using namespace sycl::ext::intel::esimd;
 
 inline auto createExceptionHandler() {
   return [](exception_list l) {
@@ -554,7 +858,7 @@ int main(void) {
   int err_cnt = 0;
 
   try {
-    queue q(gpu_selector{}, createExceptionHandler());
+    queue q(gpu_selector_v, createExceptionHandler());
     auto dev = q.get_device();
     std::cout << "Running on " << dev.get_info<info::device::name>() << "\n";
 
@@ -603,4 +907,4 @@ int main(void) {
 }
 ```
 more examples can be found in the
-[ESIMD test suite](https://github.com/intel/llvm-test-suite/tree/intel/SYCL/ESIMD) on github.
+[ESIMD test suite](https://github.com/intel/llvm/tree/sycl/sycl/test-e2e/ESIMD) on github.

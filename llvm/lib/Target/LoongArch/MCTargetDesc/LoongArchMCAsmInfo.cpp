@@ -11,9 +11,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "LoongArchMCAsmInfo.h"
-#include "llvm/ADT/Triple.h"
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/MC/MCStreamer.h"
+#include "llvm/TargetParser/Triple.h"
 
 using namespace llvm;
 
@@ -29,5 +29,6 @@ LoongArchMCAsmInfo::LoongArchMCAsmInfo(const Triple &TT) {
   ZeroDirective = "\t.space\t";
   CommentString = "#";
   SupportsDebugInformation = true;
+  DwarfRegNumForCFI = true;
   ExceptionsType = ExceptionHandling::DwarfCFI;
 }

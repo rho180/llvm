@@ -8,7 +8,6 @@
 //===----------------------------------------------------------------------===//
 
 // UNSUPPORTED: c++03, c++11, c++14, c++17
-// UNSUPPORTED: libcpp-no-concepts
 
 // type_traits
 // common_reference
@@ -218,5 +217,3 @@ static_assert(!has_type<std::common_reference<std::pair<int, const X2>, std::pai
 static_assert(!has_type<std::common_reference<std::pair<int, X2>, std::pair<float, Z2>>>);
 static_assert(!has_type<std::common_reference<std::pair<int, X2>, int, X2>>);
 #endif
-
-int main(int, char**) { return 0; }

@@ -1493,6 +1493,8 @@ void Sema::HandleDelayedAccessCheck(DelayedDiagnostic &DD, Decl *D) {
   } else if (TemplateDecl *TD = dyn_cast<TemplateDecl>(D)) {
     if (isa<DeclContext>(TD->getTemplatedDecl()))
       DC = cast<DeclContext>(TD->getTemplatedDecl());
+  } else if (auto *RD = dyn_cast<RequiresExprBodyDecl>(D)) {
+    DC = RD;
   }
 
   EffectiveContext EC(DC);
@@ -1903,7 +1905,13 @@ void Sema::CheckLookupAccess(const LookupResult &R) {
       AccessTarget Entity(Context, AccessedEntity::Member,
                           R.getNamingClass(), I.getPair(),
                           R.getBaseObjectType());
-      Entity.setDiag(diag::err_access);
+      // This is to avoid leaking implementation details of lambda object.
+      // We do not want to generate 'private member access' diagnostic for
+      // lambda object.
+      if ((R.getNamingClass())->isLambda())
+        Diag(R.getNameLoc(), diag::err_lambda_member_access);
+      else
+        Entity.setDiag(diag::err_access);
       CheckAccess(*this, R.getNameLoc(), Entity);
     }
   }

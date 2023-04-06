@@ -107,10 +107,8 @@ static void *reenter(void *Ctx, void *TrampolineAddr) {
 
   auto *EPCIU = static_cast<EPCIndirectionUtils *>(Ctx);
   EPCIU->getLazyCallThroughManager().resolveTrampolineLandingAddress(
-      pointerToJITTargetAddress(TrampolineAddr),
-      [&](JITTargetAddress LandingAddress) {
-        LandingAddressP.set_value(
-            jitTargetAddressToPointer<void *>(LandingAddress));
+      ExecutorAddr::fromPtr(TrampolineAddr), [&](ExecutorAddr LandingAddress) {
+        LandingAddressP.set_value(LandingAddress.toPtr<void *>());
       });
   return LandingAddressF.get();
 }
@@ -149,10 +147,10 @@ int main(int argc, char *argv[]) {
   // (3) Create stubs and call-through managers:
   auto EPCIU = ExitOnErr(EPCIndirectionUtils::Create(
       J->getExecutionSession().getExecutorProcessControl()));
-  ExitOnErr(EPCIU->writeResolverBlock(pointerToJITTargetAddress(&reenter),
-                                      pointerToJITTargetAddress(EPCIU.get())));
+  ExitOnErr(EPCIU->writeResolverBlock(ExecutorAddr::fromPtr(&reenter),
+                                      ExecutorAddr::fromPtr(EPCIU.get())));
   EPCIU->createLazyCallThroughManager(
-      J->getExecutionSession(), pointerToJITTargetAddress(&reportErrorAndExit));
+      J->getExecutionSession(), ExecutorAddr::fromPtr(&reportErrorAndExit));
   auto ISM = EPCIU->createIndirectStubsManager();
   J->getMainJITDylib().addGenerator(
       ExitOnErr(EPCDynamicLibrarySearchGenerator::GetForTargetProcess(
@@ -187,12 +185,15 @@ int main(int argc, char *argv[]) {
   // arguments passed.
 
   // Look up the JIT'd function, cast it to a function pointer, then call it.
-  auto EntrySym = ExitOnErr(J->lookup("entry"));
-  auto *Entry = (int (*)(int))EntrySym.getAddress();
+  auto EntryAddr = ExitOnErr(J->lookup("entry"));
+  auto *Entry = EntryAddr.toPtr<int(int)>();
 
   int Result = Entry(argc);
   outs() << "---Result---\n"
          << "entry(" << argc << ") = " << Result << "\n";
+
+  // Destroy the EPCIndirectionUtils utility.
+  ExitOnErr(EPCIU->cleanup());
 
   return 0;
 }

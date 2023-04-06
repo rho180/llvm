@@ -8,19 +8,18 @@
 
 #pragma once
 
-#include <CL/sycl/detail/property_helper.hpp>
+#include <sycl/detail/property_helper.hpp>
 #include <sycl/ext/oneapi/properties/property.hpp>
+#include <sycl/detail/boost/mp11.hpp>
 
 #include <tuple>
 
-__SYCL_INLINE_NAMESPACE(cl) {
 namespace sycl {
-namespace ext {
-namespace oneapi {
-namespace experimental {
+__SYCL_INLINE_VER_NAMESPACE(_V1) {
+namespace ext::oneapi::experimental {
 
 // Forward declaration
-template <typename PropertyT, typename T, typename... Ts> struct property_value;
+template <typename PropertyT, typename... Ts> struct property_value;
 
 namespace detail {
 
@@ -108,93 +107,20 @@ template <typename RHS> struct SelectNonVoid<void, RHS> {
   using type = RHS;
 };
 
-// Merges two tuples by recursively extracting the type with the minimum
-// PropertyID in the two tuples and prepending it to the merging of the
-// remaining elements.
-template <typename T1, typename T2> struct Merge {};
-template <typename... LTs> struct Merge<std::tuple<LTs...>, std::tuple<>> {
-  using type = std::tuple<LTs...>;
+// Sort types accoring to their PropertyID.
+struct SortByPropertyId {
+  template <typename T1, typename T2>
+  using fn = sycl::detail::boost::mp11::mp_bool<(PropertyID<T1>::value <
+                                                 PropertyID<T2>::value)>;
 };
-template <typename... RTs> struct Merge<std::tuple<>, std::tuple<RTs...>> {
-  using type = std::tuple<RTs...>;
-};
-template <typename... LTs, typename... RTs>
-struct Merge<std::tuple<LTs...>, std::tuple<RTs...>> {
-  using l_head = GetFirstType<LTs...>;
-  using r_head = GetFirstType<RTs...>;
-  static constexpr bool left_has_min =
-      PropertyID<l_head>::value < PropertyID<r_head>::value;
-  using l_split = HeadSplit<std::tuple<LTs...>, left_has_min>;
-  using r_split = HeadSplit<std::tuple<RTs...>, !left_has_min>;
-  using min = typename SelectNonVoid<typename l_split::htype,
-                                     typename r_split::htype>::type;
-  using merge_tails =
-      typename Merge<typename l_split::ttype, typename r_split::ttype>::type;
-  using type = typename PrependTuple<min, merge_tails>::type;
-};
-
-// Creates pairs of tuples with a single element from a tuple with N elements.
-// Resulting tuple will have ceil(N/2) elements.
-template <typename...> struct CreateTuplePairs {
-  using type = typename std::tuple<>;
-};
-template <typename T> struct CreateTuplePairs<T> {
-  using type = typename std::tuple<std::pair<std::tuple<T>, std::tuple<>>>;
-};
-template <typename L, typename R, typename... Rest>
-struct CreateTuplePairs<L, R, Rest...> {
-  using type =
-      typename PrependTuple<std::pair<std::tuple<L>, std::tuple<R>>,
-                            typename CreateTuplePairs<Rest...>::type>::type;
-};
-
-// Merges pairs of tuples and creates new pairs of the merged pairs. Let N be
-// the number of pairs in the supplied tuple, then the resulting tuple will
-// contain ceil(N/2) pairs of tuples.
-template <typename T> struct MergePairs {
-  using type = std::tuple<>;
-};
-template <typename... LTs, typename... RTs, typename... Rest>
-struct MergePairs<
-    std::tuple<std::pair<std::tuple<LTs...>, std::tuple<RTs...>>, Rest...>> {
-  using merged = typename Merge<std::tuple<LTs...>, std::tuple<RTs...>>::type;
-  using type = std::tuple<std::pair<merged, std::tuple<>>>;
-};
-template <typename... LLTs, typename... LRTs, typename... RLTs,
-          typename... RRTs, typename... Rest>
-struct MergePairs<
-    std::tuple<std::pair<std::tuple<LLTs...>, std::tuple<LRTs...>>,
-               std::pair<std::tuple<RLTs...>, std::tuple<RRTs...>>, Rest...>> {
-  using lmerged =
-      typename Merge<std::tuple<LLTs...>, std::tuple<LRTs...>>::type;
-  using rmerged =
-      typename Merge<std::tuple<RLTs...>, std::tuple<RRTs...>>::type;
-  using type = typename PrependTuple<
-      std::pair<lmerged, rmerged>,
-      typename MergePairs<std::tuple<Rest...>>::type>::type;
-};
-
-// Recursively merges all pairs of tuples until only a single pair of tuples
-// is left, where the right element of the pair is an empty tuple.
-template <typename T> struct MergeAll {};
-template <typename... Ts> struct MergeAll<std::tuple<Ts...>> {
-  using type = std::tuple<Ts...>;
-};
-template <typename... Ts>
-struct MergeAll<std::tuple<std::pair<std::tuple<Ts...>, std::tuple<>>>> {
-  using type = std::tuple<Ts...>;
-};
-template <typename T, typename... Ts> struct MergeAll<std::tuple<T, Ts...>> {
-  using reduced = typename MergePairs<std::tuple<T, Ts...>>::type;
-  using type = typename MergeAll<reduced>::type;
-};
-
-// Performs merge-sort on types with PropertyID.
 template <typename... Ts> struct Sorted {
   static_assert(detail::AllPropertyValues<std::tuple<Ts...>>::value,
                 "Unrecognized property in property list.");
-  using split = typename CreateTuplePairs<Ts...>::type;
-  using type = typename MergeAll<split>::type;
+  using properties = sycl::detail::boost::mp11::mp_list<Ts...>;
+  using sortedProperties =
+      sycl::detail::boost::mp11::mp_sort_q<properties, SortByPropertyId>;
+  using type =
+      sycl::detail::boost::mp11::mp_rename<sortedProperties, std::tuple>;
 };
 
 // Checks if the types in a tuple are sorted w.r.t. their PropertyID.
@@ -219,9 +145,168 @@ struct SortedAllUnique<std::tuple<L, R, Rest...>>
                                   SortedAllUnique<std::tuple<R, Rest...>>,
                                   std::false_type> {};
 
+//******************************************************************************
+// Property merging
+//******************************************************************************
+
+// Merges two sets of properties, failing if two properties are the same but
+// with different values.
+// NOTE: This assumes that the properties are in sorted order.
+template <typename LHSPropertyT, typename RHSPropertyT> struct MergeProperties;
+
+template <> struct MergeProperties<std::tuple<>, std::tuple<>> {
+  using type = std::tuple<>;
+};
+
+template <typename... LHSPropertyTs>
+struct MergeProperties<std::tuple<LHSPropertyTs...>, std::tuple<>> {
+  using type = std::tuple<LHSPropertyTs...>;
+};
+
+template <typename... RHSPropertyTs>
+struct MergeProperties<std::tuple<>, std::tuple<RHSPropertyTs...>> {
+  using type = std::tuple<RHSPropertyTs...>;
+};
+
+// Identical properties are allowed, but only one will carry over.
+template <typename PropertyT, typename... LHSPropertyTs,
+          typename... RHSPropertyTs>
+struct MergeProperties<std::tuple<PropertyT, LHSPropertyTs...>,
+                       std::tuple<PropertyT, RHSPropertyTs...>> {
+  using merge_tails =
+      typename MergeProperties<std::tuple<LHSPropertyTs...>,
+                               std::tuple<RHSPropertyTs...>>::type;
+  using type = typename PrependTuple<PropertyT, merge_tails>::type;
+};
+
+template <typename... LHSPropertyTs, typename... RHSPropertyTs>
+struct MergeProperties<std::tuple<LHSPropertyTs...>,
+                       std::tuple<RHSPropertyTs...>> {
+  using l_head = GetFirstType<LHSPropertyTs...>;
+  using r_head = GetFirstType<RHSPropertyTs...>;
+  static_assert(
+      PropertyID<l_head>::value != PropertyID<r_head>::value,
+      "Failed to merge property lists due to conflicting properties.");
+  static constexpr bool left_has_min =
+      PropertyID<l_head>::value < PropertyID<r_head>::value;
+  using l_split = HeadSplit<std::tuple<LHSPropertyTs...>, left_has_min>;
+  using r_split = HeadSplit<std::tuple<RHSPropertyTs...>, !left_has_min>;
+  using min = typename SelectNonVoid<typename l_split::htype,
+                                     typename r_split::htype>::type;
+  using merge_tails = typename MergeProperties<typename l_split::ttype,
+                                               typename r_split::ttype>::type;
+  using type = typename PrependTuple<min, merge_tails>::type;
+};
+
+//******************************************************************************
+// Property value tooling
+//******************************************************************************
+
+// Simple helpers for containing primitive types as template arguments.
+template <size_t... Sizes> struct SizeList {};
+template <char... Sizes> struct CharList {};
+
+// Helper for converting characters to a constexpr string.
+template <char... Chars> struct CharsToStr {
+  static inline constexpr const char value[] = {Chars..., '\0'};
+};
+
+// Helper for converting a list of size_t values to a comma-separated string
+// representation. This is done by extracting the digit one-by-one and when
+// finishing a value, the parsed result is added to a separate list of
+// "parsed" characters with the delimiter.
+template <typename List, typename ParsedList, char... Chars>
+struct SizeListToStrHelper;
+
+// Specialization for when we are in the process of converting a non-zero value
+// (Value). Chars will have the already converted digits of the original value
+// being converted. Instantiation of this will convert the least significant
+// digit in Value.
+// Example:
+//  - Current: SizeListToStrHelper<SizeList<12>, CharList<'1', '0', ','>, '3'>
+//  - Next: SizeListToStrHelper<SizeList<1>, CharList<'1', '0', ','>, '2', '3'>
+//  - Outermost: SizeListToStrHelper<SizeList<10,123>, CharList<>>
+//  - Final: SizeListToStrHelper<SizeList<0>,
+//                               CharList<'1', '0', ','>, '1', '2', '3'>>
+//  - Result string: "10,123"
+template <size_t Value, size_t... Values, char... ParsedChars, char... Chars>
+struct SizeListToStrHelper<SizeList<Value, Values...>, CharList<ParsedChars...>,
+                           Chars...>
+    : SizeListToStrHelper<SizeList<Value / 10, Values...>,
+                          CharList<ParsedChars...>, '0' + (Value % 10),
+                          Chars...> {};
+
+// Specialization for when we have reached 0 in the current value we are
+// converting. In this case we are done with converting the current value and
+// we insert the converted digits from Chars into ParsedChars.
+// Example:
+//  - Current: SizeListToStrHelper<SizeList<0,123>, CharList<>, '1', '0'>
+//  - Next: SizeListToStrHelper<SizeList<123>, CharList<'1', '0', ','>>
+//  - Outermost: SizeListToStrHelper<SizeList<10,123>, CharList<>>
+//  - Final: SizeListToStrHelper<SizeList<0>,
+//                               CharList<'1', '0', ','>, '1', '2', '3'>>
+//  - Result string: "10,123"
+template <size_t... Values, char... ParsedChars, char... Chars>
+struct SizeListToStrHelper<SizeList<0, Values...>, CharList<ParsedChars...>,
+                           Chars...>
+    : SizeListToStrHelper<SizeList<Values...>,
+                          CharList<ParsedChars..., Chars..., ','>> {};
+
+// Specialization for the special case where the value we are converting is 0
+// but the list of converted digits is empty. This means there was a 0 value in
+// the list and we can add it to ParsedChars directly.
+// Example:
+//  - Current: SizeListToStrHelper<SizeList<0,123>, CharList<>>
+//  - Next: SizeListToStrHelper<SizeList<123>, CharList<'0', ','>>
+//  - Outermost: SizeListToStrHelper<SizeList<0,123>, CharList<>>
+//  - Final: SizeListToStrHelper<SizeList<0>,
+//                               CharList<'0', ','>, '1', '2', '3'>>
+//  - Result string: "0,123"
+template <size_t... Values, char... ParsedChars>
+struct SizeListToStrHelper<SizeList<0, Values...>, CharList<ParsedChars...>>
+    : SizeListToStrHelper<SizeList<Values...>,
+                          CharList<ParsedChars..., '0', ','>> {};
+
+// Specialization for when we have reached 0 in the current value we are
+// converting and there a no more values to parse. In this case we are done with
+// converting the current value and we insert the converted digits from Chars
+// into ParsedChars. We do not add a ',' as it is the end of the list.
+// Example:
+//  - Current: SizeListToStrHelper<SizeList<0>, CharList<'1', '0', ','>, '1',
+//  '2', '3'>>
+//  - Next: None.
+//  - Outermost: SizeListToStrHelper<SizeList<10,123>, CharList<>>
+//  - Final: SizeListToStrHelper<SizeList<0>,
+//                               CharList<'1', '0', ','>, '1', '2', '3'>>
+//  - Result string: "10,123"
+template <char... ParsedChars, char... Chars>
+struct SizeListToStrHelper<SizeList<0>, CharList<ParsedChars...>, Chars...>
+    : CharsToStr<ParsedChars..., Chars...> {};
+
+// Specialization for when we have reached 0 in the current value we are
+// converting and there a no more values to parse, but the list of converted
+// digits is empty. This means the last value in the list was a 0 so we can add
+// that to the ParsedChars and finish.
+// Example:
+//  - Current: SizeListToStrHelper<SizeList<0>, CharList<'1', '0', ','>>>
+//  - Next: None.
+//  - Outermost: SizeListToStrHelper<SizeList<10,0>, CharList<>>
+//  - Final: SizeListToStrHelper<SizeList<0>, CharList<>, '1', '0'>>
+//  - Result string: "10,0"
+template <char... ParsedChars>
+struct SizeListToStrHelper<SizeList<0>, CharList<ParsedChars...>>
+    : CharsToStr<ParsedChars..., '0'> {};
+
+// Specialization for the empty list of values to convert. This results in an
+// empty string.
+template <>
+struct SizeListToStrHelper<SizeList<>, CharList<>> : CharsToStr<> {};
+
+// Converts size_t values to a comma-separated string representation.
+template <size_t... Sizes>
+struct SizeListToStr : SizeListToStrHelper<SizeList<Sizes...>, CharList<>> {};
+
 } // namespace detail
-} // namespace experimental
-} // namespace oneapi
-} // namespace ext
+} // namespace ext::oneapi::experimental
+} // __SYCL_INLINE_VER_NAMESPACE(_V1)
 } // namespace sycl
-} // __SYCL_INLINE_NAMESPACE(cl)

@@ -8,9 +8,11 @@
 
 #include "flang/Optimizer/Builder/DoLoopHelper.h"
 #include "gtest/gtest.h"
+#include "flang/Optimizer/Dialect/Support/KindMapping.h"
 #include "flang/Optimizer/Support/InitFIR.h"
-#include "flang/Optimizer/Support/KindMapping.h"
 #include <string>
+
+using namespace mlir;
 
 struct DoLoopHelperTest : public testing::Test {
 public:

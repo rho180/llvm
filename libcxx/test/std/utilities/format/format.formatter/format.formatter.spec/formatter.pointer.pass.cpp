@@ -6,7 +6,6 @@
 //===----------------------------------------------------------------------===//
 
 // UNSUPPORTED: c++03, c++11, c++14, c++17
-// UNSUPPORTED: libcpp-no-concepts
 // UNSUPPORTED: libcpp-has-no-incomplete-format
 
 // <format>
@@ -27,9 +26,11 @@
 #include <cmath>
 #include <charconv>
 #include <concepts>
+#include <iterator>
 #include <string>
 #include <type_traits>
 
+#include "test_format_context.h"
 #include "test_macros.h"
 #include "make_string.h"
 
@@ -49,7 +50,8 @@ void test(StringT expected, StringViewT fmt, PointerT arg) {
   auto out = std::back_inserter(result);
   using FormatCtxT = std::basic_format_context<decltype(out), CharT>;
 
-  auto format_ctx = std::__format_context_create<decltype(out), CharT>(out, std::make_format_args<FormatCtxT>(arg));
+  FormatCtxT format_ctx =
+      test_format_context_create<decltype(out), CharT>(out, std::make_format_args<FormatCtxT>(arg));
   formatter.format(arg, format_ctx);
 
   if (expected.empty()) {
@@ -57,7 +59,7 @@ void test(StringT expected, StringViewT fmt, PointerT arg) {
     buffer[0] = CharT('0');
     buffer[1] = CharT('x');
     expected.append(buffer.begin(),
-                    std::to_chars(buffer.begin() + 2, buffer.end(), reinterpret_cast<uintptr_t>(arg), 16).ptr);
+                    std::to_chars(buffer.begin() + 2, buffer.end(), reinterpret_cast<std::uintptr_t>(arg), 16).ptr);
   }
   assert(result == expected);
 }

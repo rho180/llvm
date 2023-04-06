@@ -49,7 +49,7 @@ static cl::OptionCategory *Perf2BoltCategories[] = {&AggregatorCategory,
 static cl::opt<std::string> InputFilename(cl::Positional,
                                           cl::desc("<executable>"),
                                           cl::Required, cl::cat(BoltCategory),
-                                          cl::sub(*cl::AllSubCommands));
+                                          cl::sub(cl::SubCommand::getAll()));
 
 static cl::opt<std::string>
 InputDataFilename("data",
@@ -98,7 +98,7 @@ static void printBoltRevision(llvm::raw_ostream &OS) {
 }
 
 void perf2boltMode(int argc, char **argv) {
-  cl::HideUnrelatedOptions(makeArrayRef(opts::Perf2BoltCategories));
+  cl::HideUnrelatedOptions(ArrayRef(opts::Perf2BoltCategories));
   cl::AddExtraVersionPrinter(printBoltRevision);
   cl::ParseCommandLineOptions(
       argc, argv,
@@ -127,7 +127,7 @@ void perf2boltMode(int argc, char **argv) {
 }
 
 void boltDiffMode(int argc, char **argv) {
-  cl::HideUnrelatedOptions(makeArrayRef(opts::BoltDiffCategories));
+  cl::HideUnrelatedOptions(ArrayRef(opts::BoltDiffCategories));
   cl::AddExtraVersionPrinter(printBoltRevision);
   cl::ParseCommandLineOptions(
       argc, argv,
@@ -153,7 +153,7 @@ void boltDiffMode(int argc, char **argv) {
 }
 
 void boltMode(int argc, char **argv) {
-  cl::HideUnrelatedOptions(makeArrayRef(opts::BoltCategories));
+  cl::HideUnrelatedOptions(ArrayRef(opts::BoltCategories));
   // Register the target printer for --version.
   cl::AddExtraVersionPrinter(printBoltRevision);
   cl::AddExtraVersionPrinter(TargetRegistry::printRegisteredTargetsForVersion);
@@ -216,8 +216,7 @@ int main(int argc, char **argv) {
     Binary &Binary = *BinaryOrErr.get().getBinary();
 
     if (auto *e = dyn_cast<ELFObjectFileBase>(&Binary)) {
-      auto RIOrErr =
-          RewriteInstance::createRewriteInstance(e, argc, argv, ToolPath);
+      auto RIOrErr = RewriteInstance::create(e, argc, argv, ToolPath);
       if (Error E = RIOrErr.takeError())
         report_error(opts::InputFilename, std::move(E));
       RewriteInstance &RI = *RIOrErr.get();
@@ -241,10 +240,10 @@ int main(int argc, char **argv) {
         exit(1);
       }
 
-      RI.run();
+      if (Error E = RI.run())
+        report_error(opts::InputFilename, std::move(E));
     } else if (auto *O = dyn_cast<MachOObjectFile>(&Binary)) {
-      auto MachORIOrErr =
-          MachORewriteInstance::createMachORewriteInstance(O, ToolPath);
+      auto MachORIOrErr = MachORewriteInstance::create(O, ToolPath);
       if (Error E = MachORIOrErr.takeError())
         report_error(opts::InputFilename, std::move(E));
       MachORewriteInstance &MachORI = *MachORIOrErr.get();
@@ -274,15 +273,13 @@ int main(int argc, char **argv) {
   Binary &Binary2 = *BinaryOrErr2.get().getBinary();
   if (auto *ELFObj1 = dyn_cast<ELFObjectFileBase>(&Binary1)) {
     if (auto *ELFObj2 = dyn_cast<ELFObjectFileBase>(&Binary2)) {
-      auto RI1OrErr =
-          RewriteInstance::createRewriteInstance(ELFObj1, argc, argv, ToolPath);
+      auto RI1OrErr = RewriteInstance::create(ELFObj1, argc, argv, ToolPath);
       if (Error E = RI1OrErr.takeError())
         report_error(opts::InputFilename, std::move(E));
       RewriteInstance &RI1 = *RI1OrErr.get();
       if (Error E = RI1.setProfile(opts::InputDataFilename))
         report_error(opts::InputDataFilename, std::move(E));
-      auto RI2OrErr =
-          RewriteInstance::createRewriteInstance(ELFObj2, argc, argv, ToolPath);
+      auto RI2OrErr = RewriteInstance::create(ELFObj2, argc, argv, ToolPath);
       if (Error E = RI2OrErr.takeError())
         report_error(opts::InputFilename2, std::move(E));
       RewriteInstance &RI2 = *RI2OrErr.get();
@@ -292,12 +289,14 @@ int main(int argc, char **argv) {
              << "\n";
       outs() << "BOLT-DIFF: *** Binary 1 fdata:     " << opts::InputDataFilename
              << "\n";
-      RI1.run();
+      if (Error E = RI1.run())
+        report_error(opts::InputFilename, std::move(E));
       outs() << "BOLT-DIFF: *** Analyzing binary 2: " << opts::InputFilename2
              << "\n";
       outs() << "BOLT-DIFF: *** Binary 2 fdata:     "
              << opts::InputDataFilename2 << "\n";
-      RI2.run();
+      if (Error E = RI2.run())
+        report_error(opts::InputFilename2, std::move(E));
       RI1.compare(RI2);
     } else {
       report_error(opts::InputFilename2, object_error::invalid_file_type);

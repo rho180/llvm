@@ -154,9 +154,7 @@ public:
   bool UseBigObj;
   bool UseOffsetLabels = false;
 
-  bool EmitAddrsigSection = false;
   MCSectionCOFF *AddrsigSection;
-  std::vector<const MCSymbol *> AddrsigSyms;
 
   MCSectionCOFF *CGProfileSection = nullptr;
 
@@ -171,6 +169,7 @@ public:
     Strings.clear();
     SectionMap.clear();
     SymbolMap.clear();
+    WeakDefaults.clear();
     MCObjectWriter::reset();
   }
 
@@ -220,11 +219,6 @@ public:
   void assignSectionNumbers();
   void assignFileOffsets(MCAssembler &Asm, const MCAsmLayout &Layout);
 
-  void emitAddrsigSection() override { EmitAddrsigSection = true; }
-  void addAddrsigSymbol(const MCSymbol *Sym) override {
-    AddrsigSyms.push_back(Sym);
-  }
-
   uint64_t writeObject(MCAssembler &Asm, const MCAsmLayout &Layout) override;
 };
 
@@ -273,7 +267,7 @@ COFFSection *WinCOFFObjectWriter::createSection(StringRef Name) {
 }
 
 static uint32_t getAlignment(const MCSectionCOFF &Sec) {
-  switch (Sec.getAlignment()) {
+  switch (Sec.getAlign().value()) {
   case 1:
     return COFF::IMAGE_SCN_ALIGN_1BYTES;
   case 2:
@@ -603,7 +597,7 @@ uint32_t WinCOFFObjectWriter::writeSectionContents(MCAssembler &Asm,
   // Calculate our CRC with an initial value of '0', this is not how
   // JamCRC is specified but it aligns with the expected output.
   JamCRC JC(/*Init=*/0);
-  JC.update(makeArrayRef(reinterpret_cast<uint8_t*>(Buf.data()), Buf.size()));
+  JC.update(ArrayRef(reinterpret_cast<uint8_t *>(Buf.data()), Buf.size()));
   return JC.getCRC();
 }
 
@@ -722,7 +716,7 @@ void WinCOFFObjectWriter::recordRelocation(MCAssembler &Asm,
   MCSection *MCSec = Fragment->getParent();
 
   // Mark this symbol as requiring an entry in the symbol table.
-  assert(SectionMap.find(MCSec) != SectionMap.end() &&
+  assert(SectionMap.contains(MCSec) &&
          "Section must already have been defined in executePostLayoutBinding!");
 
   COFFSection *Sec = SectionMap[MCSec];
@@ -759,7 +753,7 @@ void WinCOFFObjectWriter::recordRelocation(MCAssembler &Asm,
   if (A.isTemporary()) {
     MCSection *TargetSection = &A.getSection();
     assert(
-        SectionMap.find(TargetSection) != SectionMap.end() &&
+        SectionMap.contains(TargetSection) &&
         "Section must already have been defined in executePostLayoutBinding!");
     COFFSection *Section = SectionMap[TargetSection];
     Reloc.Symb = Section->Symbol;
@@ -780,7 +774,7 @@ void WinCOFFObjectWriter::recordRelocation(MCAssembler &Asm,
     }
   } else {
     assert(
-        SymbolMap.find(&A) != SymbolMap.end() &&
+        SymbolMap.contains(&A) &&
         "Symbol must already have been defined in executePostLayoutBinding!");
     Reloc.Symb = SymbolMap[&A];
   }
@@ -965,7 +959,7 @@ void WinCOFFObjectWriter::assignFileOffsets(MCAssembler &Asm,
   for (const auto &Section : Asm) {
     COFFSection *Sec = SectionMap[&Section];
 
-    if (Sec->Number == -1)
+    if (!Sec || Sec->Number == -1)
       continue;
 
     Sec->Header.SizeOfRawData = Layout.getSectionAddressSize(&Section);
@@ -1104,13 +1098,15 @@ uint64_t WinCOFFObjectWriter::writeObject(MCAssembler &Asm,
     Frag->setLayoutOrder(0);
     raw_svector_ostream OS(Frag->getContents());
     for (const MCSymbol *S : AddrsigSyms) {
+      if (!S->isRegistered())
+        continue;
       if (!S->isTemporary()) {
         encodeULEB128(S->getIndex(), OS);
         continue;
       }
 
       MCSection *TargetSection = &S->getSection();
-      assert(SectionMap.find(TargetSection) != SectionMap.end() &&
+      assert(SectionMap.contains(TargetSection) &&
              "Section must already have been defined in "
              "executePostLayoutBinding!");
       encodeULEB128(SectionMap[TargetSection]->Symbol->getIndex(), OS);

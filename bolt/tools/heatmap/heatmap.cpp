@@ -50,7 +50,7 @@ static std::string GetExecutablePath(const char *Argv0) {
 }
 
 int main(int argc, char **argv) {
-  cl::HideUnrelatedOptions(makeArrayRef(opts::HeatmapCategories));
+  cl::HideUnrelatedOptions(ArrayRef(opts::HeatmapCategories));
   cl::ParseCommandLineOptions(argc, argv, "");
 
   if (opts::PerfData.empty()) {
@@ -85,8 +85,7 @@ int main(int argc, char **argv) {
   Binary &Binary = *BinaryOrErr.get().getBinary();
 
   if (auto *e = dyn_cast<ELFObjectFileBase>(&Binary)) {
-    auto RIOrErr =
-        RewriteInstance::createRewriteInstance(e, argc, argv, ToolPath);
+    auto RIOrErr = RewriteInstance::create(e, argc, argv, ToolPath);
     if (Error E = RIOrErr.takeError())
       report_error("RewriteInstance", std::move(E));
 
@@ -94,7 +93,8 @@ int main(int argc, char **argv) {
     if (Error E = RI.setProfile(opts::PerfData))
       report_error(opts::PerfData, std::move(E));
 
-    RI.run();
+    if (Error E = RI.run())
+      report_error(opts::InputFilename, std::move(E));
   } else {
     report_error(opts::InputFilename, object_error::invalid_file_type);
   }

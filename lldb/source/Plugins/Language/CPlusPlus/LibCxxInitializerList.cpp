@@ -11,6 +11,7 @@
 #include "lldb/Core/ValueObject.h"
 #include "lldb/DataFormatters/FormattersHelpers.h"
 #include "lldb/Utility/ConstString.h"
+#include <optional>
 
 using namespace lldb;
 using namespace lldb_private;
@@ -36,18 +37,17 @@ public:
   size_t GetIndexOfChildWithName(ConstString name) override;
 
 private:
-  ValueObject *m_start;
+  ValueObject *m_start = nullptr;
   CompilerType m_element_type;
-  uint32_t m_element_size;
-  size_t m_num_elements;
+  uint32_t m_element_size = 0;
+  size_t m_num_elements = 0;
 };
 } // namespace formatters
 } // namespace lldb_private
 
 lldb_private::formatters::LibcxxInitializerListSyntheticFrontEnd::
     LibcxxInitializerListSyntheticFrontEnd(lldb::ValueObjectSP valobj_sp)
-    : SyntheticChildrenFrontEnd(*valobj_sp), m_start(nullptr), m_element_type(),
-      m_element_size(0), m_num_elements(0) {
+    : SyntheticChildrenFrontEnd(*valobj_sp), m_element_type() {
   if (valobj_sp)
     Update();
 }
@@ -93,7 +93,7 @@ bool lldb_private::formatters::LibcxxInitializerListSyntheticFrontEnd::
   if (!m_element_type.IsValid())
     return false;
 
-  if (llvm::Optional<uint64_t> size = m_element_type.GetByteSize(nullptr)) {
+  if (std::optional<uint64_t> size = m_element_type.GetByteSize(nullptr)) {
     m_element_size = *size;
     // Store raw pointers or end up with a circular dependency.
     m_start = m_backend.GetChildMemberWithName(g_begin_, true).get();

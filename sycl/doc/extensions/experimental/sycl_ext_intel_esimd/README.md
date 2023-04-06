@@ -6,7 +6,7 @@ yet allows to write explicitly vectorized device code. This helps programmer to
 have more control over the generated code and depend less on compiler
 optimizations. The [specification](sycl_ext_intel_esimd.md),
 [API reference](https://intel.github.io/llvm-docs/doxygen/group__sycl__esimd.html), and
-[working code examples](https://github.com/intel/llvm-test-suite/tree/intel/SYCL/ESIMD) are available on the Intel DPC++ project's github.
+[working code examples](https://github.com/intel/llvm/blob/sycl/sycl/test-e2e/ESIMD/) are available on the Intel DPC++ project's github.
 
 **_NOTE:_** _Some parts of this extension is under active development and APIs in the
 `sycl::ext::intel::experimental::esimd` package are subject to change. There are
@@ -45,9 +45,9 @@ a special attribute - `[[intel::sycl_explicit_simd]]`. This tells the compiler t
 this kernel is a ESIMD one and ESIMD APIs can be used inside it. Here the `simd`
 objects and `copy_to` intrinsics are used which are avaiable only in the ESIMD extension.
 Full runnable code sample can be found on the
-[github repo](https://github.com/intel/llvm-test-suite/blob/intel/SYCL/ESIMD/vadd_usm.cpp).
+[github repo](https://github.com/intel/llvm/blob/sycl/sycl/test-e2e/ESIMD/vadd_usm.cp).
 
-#### Compiling and running ESIMD code.
+#### Compiling and running ESIMD code
 
 Code that uses the ESIMD extension can be compiled and run using the same commands
 as standard SYCL:
@@ -69,6 +69,12 @@ and Windows platforms are supported, including OpenCL and Level Zero backends.
 Regular SYCL and ESIMD kernels can co-exist in the same translation unit and in
 the same application, however interoperability (e.g. invocation of ESIMD
 functions from a standard SYCL code) between them is not yet supported.
+
+#### ESIMD_EMULATOR backend
+
+Under Linux environment, the same resulting executable file can be run
+on CPU under emulation mode without Intel GPU. For details, check
+[ESIMD_EMULATOR bakend] (esimd_emulator.md)
 
 #### Restrictions
 
@@ -95,6 +101,7 @@ done via explicit APIs; e.g. `sycl::ext::intel::experimental::esimd::block_store
 - `sycl::sampler` and `sycl::stream` classes
 
 ##### Other restrictions:
-- Only Intel GPU device is supported
+
+- Only Intel GPU device is supported.
 - Interoperability between regular SYCL and ESIMD kernels is not yet supported.
   I.e., it's not possible to invoke an ESIMD kernel from SYCL kernel and vice-versa.

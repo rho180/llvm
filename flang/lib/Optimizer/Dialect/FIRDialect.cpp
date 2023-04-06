@@ -31,8 +31,7 @@ struct FIRInlinerInterface : public mlir::DialectInlinerInterface {
   /// This hook checks to see if the operation `op` is legal to inline into the
   /// given region `reg`.
   bool isLegalToInline(mlir::Operation *op, mlir::Region *reg,
-                       bool wouldBeCloned,
-                       mlir::BlockAndValueMapping &map) const final {
+                       bool wouldBeCloned, mlir::IRMapping &map) const final {
     return fir::canLegallyInline(op, reg, wouldBeCloned, map);
   }
 
@@ -42,7 +41,7 @@ struct FIRInlinerInterface : public mlir::DialectInlinerInterface {
   /// return.
   void handleTerminator(mlir::Operation *op,
                         llvm::ArrayRef<mlir::Value> valuesToRepl) const final {
-    auto returnOp = cast<mlir::ReturnOp>(op);
+    auto returnOp = llvm::cast<mlir::func::ReturnOp>(op);
     assert(returnOp.getNumOperands() == valuesToRepl.size());
     for (const auto &it : llvm::enumerate(returnOp.getOperands()))
       valuesToRepl[it.index()].replaceAllUsesWith(it.value());

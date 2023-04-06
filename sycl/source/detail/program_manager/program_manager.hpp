@@ -7,17 +7,20 @@
 //===----------------------------------------------------------------------===//
 
 #pragma once
-#include <CL/sycl/detail/common.hpp>
-#include <CL/sycl/detail/device_binary_image.hpp>
-#include <CL/sycl/detail/export.hpp>
-#include <CL/sycl/detail/os_util.hpp>
-#include <CL/sycl/detail/pi.hpp>
-#include <CL/sycl/detail/util.hpp>
-#include <CL/sycl/device.hpp>
-#include <CL/sycl/kernel_bundle.hpp>
-#include <CL/sycl/stl.hpp>
+#include <detail/device_binary_image.hpp>
 #include <detail/device_global_map_entry.hpp>
+#include <detail/host_pipe_map_entry.hpp>
 #include <detail/spec_constant_impl.hpp>
+#include <sycl/detail/common.hpp>
+#include <sycl/detail/device_global_map.hpp>
+#include <sycl/detail/export.hpp>
+#include <sycl/detail/host_pipe_map.hpp>
+#include <sycl/detail/os_util.hpp>
+#include <sycl/detail/pi.hpp>
+#include <sycl/detail/util.hpp>
+#include <sycl/device.hpp>
+#include <sycl/kernel_bundle.hpp>
+#include <sycl/stl.hpp>
 
 #include <cstdint>
 #include <map>
@@ -40,10 +43,13 @@ extern "C" __SYCL_EXPORT void __sycl_unregister_lib(pi_device_binaries desc);
 
 // +++ }
 
-__SYCL_INLINE_NAMESPACE(cl) {
 namespace sycl {
+__SYCL_INLINE_VER_NAMESPACE(_V1) {
 class context;
 namespace detail {
+
+bool doesDevSupportDeviceRequirements(const device &Dev,
+                                      const RTDeviceBinaryImage &BinImages);
 
 // This value must be the same as in libdevice/device_itt.h.
 // See sycl/doc/design/ITTAnnotations.md for more info.
@@ -54,6 +60,8 @@ using ContextImplPtr = std::shared_ptr<context_impl>;
 class device_impl;
 using DeviceImplPtr = std::shared_ptr<device_impl>;
 class program_impl;
+class queue_impl;
+class event_impl;
 // DeviceLibExt is shared between sycl runtime and sycl-post-link tool.
 // If any update is made here, need to sync with DeviceLibExt definition
 // in llvm/tools/sycl-post-link/sycl-post-link.cpp
@@ -63,7 +71,11 @@ enum class DeviceLibExt : std::uint32_t {
   cl_intel_devicelib_math_fp64,
   cl_intel_devicelib_complex,
   cl_intel_devicelib_complex_fp64,
-  cl_intel_devicelib_cstring
+  cl_intel_devicelib_cstring,
+  cl_intel_devicelib_imf,
+  cl_intel_devicelib_imf_fp64,
+  cl_intel_devicelib_imf_bf16,
+  cl_intel_devicelib_bfloat16,
 };
 
 // Provides single loading and building OpenCL programs with unique contexts
@@ -78,6 +90,10 @@ public:
   static ProgramManager &getInstance();
   RTDeviceBinaryImage &getDeviceImage(OSModuleHandle M,
                                       const std::string &KernelName,
+                                      const context &Context,
+                                      const device &Device,
+                                      bool JITCompilationIsRequired = false);
+  RTDeviceBinaryImage &getDeviceImage(OSModuleHandle M, KernelSetId KSId,
                                       const context &Context,
                                       const device &Device,
                                       bool JITCompilationIsRequired = false);
@@ -183,8 +199,38 @@ public:
   // built-in kernel name.
   kernel_id getBuiltInKernelID(const std::string &KernelName);
 
-  // The function inserts a device_global entry into the device_global map.
-  void addDeviceGlobalEntry(void *DeviceGlobalPtr, const char *UniqueId);
+  // The function inserts or initializes a device_global entry into the
+  // device_global map.
+  void addOrInitDeviceGlobalEntry(const void *DeviceGlobalPtr,
+                                  const char *UniqueId);
+
+  // Returns true if any available image is compatible with the device Dev.
+  bool hasCompatibleImage(const device &Dev);
+
+  // The function gets a device_global entry identified by the pointer to the
+  // device_global object from the device_global map.
+  DeviceGlobalMapEntry *getDeviceGlobalEntry(const void *DeviceGlobalPtr);
+
+  // The function gets multiple device_global entries identified by their unique
+  // IDs from the device_global map.
+  std::vector<DeviceGlobalMapEntry *>
+  getDeviceGlobalEntries(const std::vector<std::string> &UniqueIds,
+                         bool ExcludeDeviceImageScopeDecorated = false);
+  // The function inserts or initializes a host_pipe entry into the
+  // host_pipe map.
+  void addOrInitHostPipeEntry(const void *HostPipePtr, const char *UniqueId);
+
+  // The function gets a host_pipe entry identified by the unique ID from
+  // the host_pipe map.
+  HostPipeMapEntry *getHostPipeEntry(const std::string &UniqueId);
+
+  // The function gets a host_pipe entry identified by the pointer to the
+  // host_pipe object from the host_pipe map.
+  HostPipeMapEntry *getHostPipeEntry(const void *HostPipePtr);
+
+  device_image_plain
+  getDeviceImageFromBinaryImage(RTDeviceBinaryImage *BinImage,
+                                const context &Ctx, const device &Dev);
 
   // The function returns a vector of SYCL device images that are compiled with
   // the required state and at least one device from the passed list of devices.
@@ -246,21 +292,18 @@ public:
 
   bool kernelUsesAssert(OSModuleHandle M, const std::string &KernelName) const;
 
+  std::set<RTDeviceBinaryImage *>
+  getRawDeviceImages(const std::vector<kernel_id> &KernelIDs);
+
 private:
   ProgramManager(ProgramManager const &) = delete;
   ProgramManager &operator=(ProgramManager const &) = delete;
 
-  RTDeviceBinaryImage &getDeviceImage(OSModuleHandle M, KernelSetId KSId,
-                                      const context &Context,
-                                      const device &Device,
-                                      bool JITCompilationIsRequired = false);
   using ProgramPtr = std::unique_ptr<remove_pointer_t<RT::PiProgram>,
                                      decltype(&::piProgramRelease)>;
   ProgramPtr build(ProgramPtr Program, const ContextImplPtr Context,
                    const std::string &CompileOptions,
                    const std::string &LinkOptions, const RT::PiDevice &Device,
-                   std::map<std::pair<DeviceLibExt, RT::PiDevice>,
-                            RT::PiProgram> &CachedLibPrograms,
                    uint32_t DeviceLibReqMask);
   /// Provides a new kernel set id for grouping kernel names together
   KernelSetId getNextKernelSetId() const;
@@ -269,7 +312,8 @@ private:
   KernelSetId getKernelSetId(OSModuleHandle M,
                              const std::string &KernelName) const;
   /// Dumps image to current directory
-  void dumpImage(const RTDeviceBinaryImage &Img, KernelSetId KSId) const;
+  void dumpImage(const RTDeviceBinaryImage &Img, KernelSetId KSId,
+                 uint32_t SequenceID = 0) const;
 
   /// Add info on kernels using assert into cache
   void cacheKernelUsesAssertInfo(OSModuleHandle M, RTDeviceBinaryImage &Img);
@@ -387,12 +431,22 @@ private:
   using KernelNameWithOSModule = std::pair<std::string, OSModuleHandle>;
   std::set<KernelNameWithOSModule> m_KernelUsesAssert;
 
-  // Map between device_global unique ids and associated information.
-  std::unordered_map<std::string, DeviceGlobalMapEntry> m_DeviceGlobals;
+  // Maps between device_global identifiers and associated information.
+  std::unordered_map<std::string, std::unique_ptr<DeviceGlobalMapEntry>>
+      m_DeviceGlobals;
+  std::unordered_map<const void *, DeviceGlobalMapEntry *> m_Ptr2DeviceGlobal;
 
-  /// Protects m_DeviceGlobals.
+  /// Protects m_DeviceGlobals and m_Ptr2DeviceGlobal.
   std::mutex m_DeviceGlobalsMutex;
+
+  // Maps between host_pipe identifiers and associated information.
+  std::unordered_map<std::string, std::unique_ptr<HostPipeMapEntry>>
+      m_HostPipes;
+  std::unordered_map<const void *, HostPipeMapEntry *> m_Ptr2HostPipe;
+
+  /// Protects m_HostPipes and m_Ptr2HostPipe.
+  std::mutex m_HostPipesMutex;
 };
 } // namespace detail
+} // __SYCL_INLINE_VER_NAMESPACE(_V1)
 } // namespace sycl
-} // __SYCL_INLINE_NAMESPACE(cl)

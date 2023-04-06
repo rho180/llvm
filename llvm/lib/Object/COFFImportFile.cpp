@@ -38,6 +38,7 @@ static bool is32bit(MachineTypes Machine) {
   default:
     llvm_unreachable("unsupported machine");
   case IMAGE_FILE_MACHINE_ARM64:
+  case IMAGE_FILE_MACHINE_ARM64EC:
   case IMAGE_FILE_MACHINE_AMD64:
     return false;
   case IMAGE_FILE_MACHINE_ARMNT:
@@ -55,6 +56,7 @@ static uint16_t getImgRelRelocation(MachineTypes Machine) {
   case IMAGE_FILE_MACHINE_ARMNT:
     return IMAGE_REL_ARM_ADDR32NB;
   case IMAGE_FILE_MACHINE_ARM64:
+  case IMAGE_FILE_MACHINE_ARM64EC:
     return IMAGE_REL_ARM64_ADDR32NB;
   case IMAGE_FILE_MACHINE_I386:
     return IMAGE_REL_I386_DIR32NB;
@@ -84,7 +86,8 @@ static void writeStringTable(std::vector<uint8_t> &B,
 
   for (const auto &S : Strings) {
     B.resize(Pos + S.length() + 1);
-    strcpy(reinterpret_cast<char *>(&B[Pos]), S.c_str());
+    std::copy(S.begin(), S.end(), std::next(B.begin(), Pos));
+    B[Pos + S.length()] = 0;
     Pos += S.length() + 1;
   }
 

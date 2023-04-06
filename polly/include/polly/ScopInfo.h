@@ -34,11 +34,7 @@
 #include <cassert>
 #include <cstddef>
 #include <forward_list>
-
-namespace llvm {
-void initializeScopInfoRegionPassPass(PassRegistry &);
-void initializeScopInfoWrapperPassPass(PassRegistry &);
-} // end namespace llvm
+#include <optional>
 
 namespace polly {
 using llvm::AnalysisInfoMixin;
@@ -56,7 +52,6 @@ using llvm::LoadInst;
 using llvm::make_range;
 using llvm::MapVector;
 using llvm::MemIntrinsic;
-using llvm::Optional;
 using llvm::PassInfoMixin;
 using llvm::PHINode;
 using llvm::RegionNode;
@@ -221,7 +216,7 @@ using AccFuncVector = std::vector<std::unique_ptr<MemoryAccess>>;
 /// Objects are accessible via the ScoP, MemoryAccess or the id associated with
 /// the MemoryAccess access function.
 ///
-class ScopArrayInfo {
+class ScopArrayInfo final {
 public:
   /// Construct a ScopArrayInfo object.
   ///
@@ -433,7 +428,7 @@ private:
 };
 
 /// Represent memory accesses in statements.
-class MemoryAccess {
+class MemoryAccess final {
   friend class Scop;
   friend class ScopStmt;
   friend class ScopBuilder;
@@ -1140,7 +1135,7 @@ using InvariantEquivClassesTy = SmallVector<InvariantEquivClassTy, 8>;
 /// It is further described by its iteration domain, its schedule and its data
 /// accesses.
 /// At the moment every statement represents a single basic block of LLVM-IR.
-class ScopStmt {
+class ScopStmt final {
   friend class ScopBuilder;
 
 public:
@@ -1364,8 +1359,7 @@ public:
     if (!Inst)
       return false;
     if (isBlockStmt())
-      return std::find(Instructions.begin(), Instructions.end(), Inst) !=
-             Instructions.end();
+      return llvm::is_contained(Instructions, Inst);
     return represents(Inst->getParent());
   }
 
@@ -1631,7 +1625,7 @@ raw_ostream &operator<<(raw_ostream &OS, const ScopStmt &S);
 ///   * A context
 ///   This context contains information about the values the parameters
 ///   can take and relations between different parameters.
-class Scop {
+class Scop final {
 public:
   /// Type to represent a pair of minimal/maximal access to an array.
   using MinMaxAccessTy = std::pair<isl::pw_multi_aff, isl::pw_multi_aff>;
@@ -1668,7 +1662,7 @@ private:
   Region &R;
 
   /// The name of the SCoP (identical to the regions name)
-  Optional<std::string> name;
+  std::optional<std::string> name;
 
   // Access functions of the SCoP.
   //
@@ -1689,9 +1683,6 @@ private:
 
   /// Number of copy statements.
   unsigned CopyStmtsNum = 0;
-
-  /// Flag to indicate if the Scop is to be skipped.
-  bool SkipScop = false;
 
   using StmtSet = std::list<ScopStmt>;
 
@@ -2149,12 +2140,6 @@ public:
 
   /// Check if the SCoP has been optimized by the scheduler.
   bool isOptimized() const { return IsOptimized; }
-
-  /// Mark the SCoP to be skipped by ScopPass passes.
-  void markAsToBeSkipped() { SkipScop = true; }
-
-  /// Check if the SCoP is to be skipped by ScopPass passes.
-  bool isToBeSkipped() const { return SkipScop; }
 
   /// Return the ID of the Scop
   int getID() const { return ID; }
@@ -2689,7 +2674,7 @@ raw_ostream &operator<<(raw_ostream &OS, const Scop &scop);
 
 /// The legacy pass manager's analysis pass to compute scop information
 ///        for a region.
-class ScopInfoRegionPass : public RegionPass {
+class ScopInfoRegionPass final : public RegionPass {
   /// The Scop pointer which is used to construct a Scop.
   std::unique_ptr<Scop> S;
 
@@ -2717,6 +2702,8 @@ public:
 
   void getAnalysisUsage(AnalysisUsage &AU) const override;
 };
+
+llvm::Pass *createScopInfoPrinterLegacyRegionPass(raw_ostream &OS);
 
 class ScopInfo {
 public:
@@ -2777,7 +2764,7 @@ public:
   bool empty() const { return RegionToScopMap.empty(); }
 };
 
-struct ScopInfoAnalysis : public AnalysisInfoMixin<ScopInfoAnalysis> {
+struct ScopInfoAnalysis : AnalysisInfoMixin<ScopInfoAnalysis> {
   static AnalysisKey Key;
 
   using Result = ScopInfo;
@@ -2785,7 +2772,7 @@ struct ScopInfoAnalysis : public AnalysisInfoMixin<ScopInfoAnalysis> {
   Result run(Function &, FunctionAnalysisManager &);
 };
 
-struct ScopInfoPrinterPass : public PassInfoMixin<ScopInfoPrinterPass> {
+struct ScopInfoPrinterPass final : PassInfoMixin<ScopInfoPrinterPass> {
   ScopInfoPrinterPass(raw_ostream &OS) : Stream(OS) {}
 
   PreservedAnalyses run(Function &, FunctionAnalysisManager &);
@@ -2801,7 +2788,7 @@ struct ScopInfoPrinterPass : public PassInfoMixin<ScopInfoPrinterPass> {
 /// scop object for all the feasible scops present in a function.
 /// This pass is an alternative to the ScopInfoRegionPass in order to avoid a
 /// region pass manager.
-class ScopInfoWrapperPass : public FunctionPass {
+class ScopInfoWrapperPass final : public FunctionPass {
   std::unique_ptr<ScopInfo> Result;
 
 public:
@@ -2822,6 +2809,15 @@ public:
 
   void getAnalysisUsage(AnalysisUsage &AU) const override;
 };
+
+llvm::Pass *createScopInfoPrinterLegacyFunctionPass(llvm::raw_ostream &OS);
 } // end namespace polly
+
+namespace llvm {
+void initializeScopInfoRegionPassPass(PassRegistry &);
+void initializeScopInfoPrinterLegacyRegionPassPass(PassRegistry &);
+void initializeScopInfoWrapperPassPass(PassRegistry &);
+void initializeScopInfoPrinterLegacyFunctionPassPass(PassRegistry &);
+} // end namespace llvm
 
 #endif // POLLY_SCOPINFO_H

@@ -6,8 +6,9 @@
 //===----------------------------------------------------------------------===//
 
 // UNSUPPORTED: c++03, c++11, c++14, c++17
-// UNSUPPORTED: libcpp-no-concepts
 // UNSUPPORTED: libcpp-has-no-incomplete-format
+
+// XFAIL: availability-fp_to_chars-missing
 
 // <format>
 
@@ -32,9 +33,11 @@
 #include <cmath>
 #include <charconv>
 #include <concepts>
+#include <iterator>
 #include <string>
 #include <type_traits>
 
+#include "test_format_context.h"
 #include "test_macros.h"
 #include "make_string.h"
 
@@ -53,7 +56,8 @@ void test(std::basic_string_view<CharT> fmt, ArithmeticT arg, std::basic_string<
   auto out = std::back_inserter(result);
   using FormatCtxT = std::basic_format_context<decltype(out), CharT>;
 
-  auto format_ctx = std::__format_context_create<decltype(out), CharT>(out, std::make_format_args<FormatCtxT>(arg));
+  FormatCtxT format_ctx =
+      test_format_context_create<decltype(out), CharT>(out, std::make_format_args<FormatCtxT>(arg));
   formatter.format(arg, format_ctx);
 
   if (expected.empty()) {
@@ -85,7 +89,7 @@ void test_hex_lower_case_precision(ArithmeticT value) {
   char* end = std::to_chars(buffer.begin(), buffer.end(), value, std::chars_format::hex, 20'000).ptr;
   test_termination_condition(STR(".20000a}"), value, std::basic_string<CharT>{buffer.begin(), end});
 
-  size_t size = buffer.end() - end;
+  std::size_t size = buffer.end() - end;
   std::fill_n(end, size, '#');
   test_termination_condition(STR("#<25000.20000a}"), value, std::basic_string<CharT>{buffer.begin(), buffer.end()});
   std::rotate(buffer.begin(), buffer.end() - (size / 2), buffer.end());
@@ -125,7 +129,7 @@ void test_hex_upper_case_precision(ArithmeticT value) {
   std::transform(buffer.begin(), end, buffer.begin(), [](char c) { return std::toupper(c); });
   test_termination_condition(STR(".20000A}"), value, std::basic_string<CharT>{buffer.begin(), end});
 
-  size_t size = buffer.end() - end;
+  std::size_t size = buffer.end() - end;
   std::fill_n(end, size, '#');
   test_termination_condition(STR("#<25000.20000A}"), value, std::basic_string<CharT>{buffer.begin(), buffer.end()});
   std::rotate(buffer.begin(), buffer.end() - (size / 2), buffer.end());
@@ -165,7 +169,7 @@ void test_scientific_lower_case_precision(ArithmeticT value) {
   char* end = std::to_chars(buffer.begin(), buffer.end(), value, std::chars_format::scientific, 20'000).ptr;
   test_termination_condition(STR(".20000e}"), value, std::basic_string<CharT>{buffer.begin(), end});
 
-  size_t size = buffer.end() - end;
+  std::size_t size = buffer.end() - end;
   std::fill_n(end, size, '#');
   test_termination_condition(STR("#<25000.20000e}"), value, std::basic_string<CharT>{buffer.begin(), buffer.end()});
   std::rotate(buffer.begin(), buffer.end() - (size / 2), buffer.end());
@@ -205,7 +209,7 @@ void test_scientific_upper_case_precision(ArithmeticT value) {
   std::transform(buffer.begin(), end, buffer.begin(), [](char c) { return std::toupper(c); });
   test_termination_condition(STR(".20000E}"), value, std::basic_string<CharT>{buffer.begin(), end});
 
-  size_t size = buffer.end() - end;
+  std::size_t size = buffer.end() - end;
   std::fill_n(end, size, '#');
   test_termination_condition(STR("#<25000.20000E}"), value, std::basic_string<CharT>{buffer.begin(), buffer.end()});
   std::rotate(buffer.begin(), buffer.end() - (size / 2), buffer.end());
@@ -245,7 +249,7 @@ void test_fixed_lower_case_precision(ArithmeticT value) {
   char* end = std::to_chars(buffer.begin(), buffer.end(), value, std::chars_format::fixed, 20'000).ptr;
   test_termination_condition(STR(".20000f}"), value, std::basic_string<CharT>{buffer.begin(), end});
 
-  size_t size = buffer.end() - end;
+  std::size_t size = buffer.end() - end;
   std::fill_n(end, size, '#');
   test_termination_condition(STR("#<25000.20000f}"), value, std::basic_string<CharT>{buffer.begin(), buffer.end()});
   std::rotate(buffer.begin(), buffer.end() - (size / 2), buffer.end());
@@ -285,7 +289,7 @@ void test_fixed_upper_case_precision(ArithmeticT value) {
   std::transform(buffer.begin(), end, buffer.begin(), [](char c) { return std::toupper(c); });
   test_termination_condition(STR(".20000F}"), value, std::basic_string<CharT>{buffer.begin(), end});
 
-  size_t size = buffer.end() - end;
+  std::size_t size = buffer.end() - end;
   std::fill_n(end, size, '#');
   test_termination_condition(STR("#<25000.20000F}"), value, std::basic_string<CharT>{buffer.begin(), buffer.end()});
   std::rotate(buffer.begin(), buffer.end() - (size / 2), buffer.end());
@@ -325,7 +329,7 @@ void test_general_lower_case_precision(ArithmeticT value) {
   char* end = std::to_chars(buffer.begin(), buffer.end(), value, std::chars_format::general, 20'000).ptr;
   test_termination_condition(STR(".20000g}"), value, std::basic_string<CharT>{buffer.begin(), end});
 
-  size_t size = buffer.end() - end;
+  std::size_t size = buffer.end() - end;
   std::fill_n(end, size, '#');
   test_termination_condition(STR("#<25000.20000g}"), value, std::basic_string<CharT>{buffer.begin(), buffer.end()});
   std::rotate(buffer.begin(), buffer.end() - (size / 2), buffer.end());
@@ -365,7 +369,7 @@ void test_general_upper_case_precision(ArithmeticT value) {
   std::transform(buffer.begin(), end, buffer.begin(), [](char c) { return std::toupper(c); });
   test_termination_condition(STR(".20000G}"), value, std::basic_string<CharT>{buffer.begin(), end});
 
-  size_t size = buffer.end() - end;
+  std::size_t size = buffer.end() - end;
   std::fill_n(end, size, '#');
   test_termination_condition(STR("#<25000.20000G}"), value, std::basic_string<CharT>{buffer.begin(), buffer.end()});
   std::rotate(buffer.begin(), buffer.end() - (size / 2), buffer.end());

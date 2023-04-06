@@ -3,21 +3,21 @@
 // Tests for AST of device_has(aspect, ...) attribute
 #include "sycl.hpp"
 
-using namespace cl::sycl;
+using namespace sycl;
 queue q;
 
 // CHECK: FunctionDecl {{.*}} func1 'void ()'
 // CHECK-NEXT: CompoundStmt
 // CHECK-NEXT: SYCLDeviceHasAttr
 // CHECK-NEXT: DeclRefExpr {{.*}} 'sycl::aspect' EnumConstant {{.*}} 'cpu' 'sycl::aspect'
-[[sycl::device_has(cl::sycl::aspect::cpu)]] void func1() {}
+[[sycl::device_has(sycl::aspect::cpu)]] void func1() {}
 
 // CHECK: FunctionDecl {{.*}} func2 'void ()'
 // CHECK-NEXT: CompoundStmt
 // CHECK-NEXT: SYCLDeviceHasAttr
 // CHECK-NEXT: DeclRefExpr {{.*}} 'sycl::aspect' EnumConstant {{.*}} 'fp16' 'sycl::aspect'
 // CHECK-NEXT: DeclRefExpr {{.*}} 'sycl::aspect' EnumConstant {{.*}} 'gpu' 'sycl::aspect'
-[[sycl::device_has(cl::sycl::aspect::fp16, cl::sycl::aspect::gpu)]] void func2() {}
+[[sycl::device_has(sycl::aspect::fp16, sycl::aspect::gpu)]] void func2() {}
 
 // CHECK: FunctionDecl {{.*}} func3 'void ()'
 // CHECK-NEXT: CompoundStmt
@@ -29,10 +29,10 @@ queue q;
 // CHECK-NEXT: CompoundStmt
 // CHECK-NEXT: SYCLDeviceHasAttr
 // CHECK-NEXT: SubstNonTypeTemplateParmExpr {{.*}} 'sycl::aspect'
-// CHECK-NEXT: NonTypeTemplateParmDecl {{.*}} referenced 'cl::sycl::aspect':'sycl::aspect' depth 0 index 0 Aspect
+// CHECK-NEXT: NonTypeTemplateParmDecl {{.*}} referenced 'sycl::aspect':'sycl::aspect' depth 0 index 0 Aspect
 // CHECK-NEXT: CStyleCastExpr {{.*}} 'sycl::aspect' <IntegralCast>
 // CHECK-NEXT: IntegerLiteral {{.*}} 'int' 0
-template <cl::sycl::aspect Aspect>
+template <sycl::aspect Aspect>
 [[sycl::device_has(Aspect)]] void func4() {}
 
 // CHECK: FunctionDecl {{.*}} used func5 'void ()'
@@ -42,31 +42,96 @@ template <cl::sycl::aspect Aspect>
 // CHECK-NEXT: CompoundStmt
 // CHECK-NEXT: SYCLDeviceHasAttr {{.*}} Inherited
 // CHECK-NEXT: DeclRefExpr {{.*}} 'sycl::aspect' EnumConstant {{.*}} 'cpu' 'sycl::aspect'
-[[sycl::device_has(cl::sycl::aspect::cpu)]] void func5();
+[[sycl::device_has(sycl::aspect::cpu)]] void func5();
 void func5() {}
 
 // CHECK: FunctionDecl {{.*}} used func6 'void ()'
 // CHECK-NEXT: SYCLDeviceHasAttr
 // CHECK-NEXT: DeclRefExpr {{.*}} 'sycl::aspect' EnumConstant {{.*}} 'cpu' 'sycl::aspect'
-[[sycl::device_has(cl::sycl::aspect::cpu)]] void func6();
+[[sycl::device_has(sycl::aspect::cpu)]] void func6();
 
 // CHECK: FunctionDecl {{.*}} used func6 'void ()'
 // CHECK-NEXT: CompoundStmt
 // CHECK-NEXT: SYCLDeviceHasAttr
 // CHECK-NEXT: DeclRefExpr {{.*}} 'sycl::aspect' EnumConstant {{.*}} 'gpu' 'sycl::aspect'
 // CHECK-NOT: SYCLDeviceHasAttr
-[[sycl::device_has(cl::sycl::aspect::gpu)]] void func6() {}
+[[sycl::device_has(sycl::aspect::gpu)]] void func6() {}
 
-// CHECK: CXXRecordDecl {{.*}} KernelFunctor
+// CHECK: FunctionTemplateDecl {{.*}} func7
+// CHECK-NEXT: NonTypeTemplateParmDecl {{.*}} ... Asp
+// CHECK-NEXT: FunctionDecl {{.*}} func7
+// CHECK-NEXT: CompoundStmt
+// CHECK-NEXT: SYCLDeviceHasAttr
+// CHECK-NEXT: PackExpansionExpr
+// CHECK-NEXT: DeclRefExpr {{.*}} NonTypeTemplateParm {{.*}} 'Asp' 'sycl::aspect'
+
+// CHECK: FunctionDecl {{.*}} func7 'void ()'
+// CHECK-NEXT: TemplateArgument pack
+// CHECK-NEXT: TemplateArgument integral 1
+// CHECK-NEXT: TemplateArgument integral 2
+// CHECK-NEXT: CompoundStmt
+// CHECK-NEXT: SYCLDeviceHasAttr
+// CHECK-NEXT: SubstNonTypeTemplateParmExpr {{.*}} 'sycl::aspect'
+// CHECK-NEXT: NonTypeTemplateParmDecl {{.*}} ... Asp
+// CHECK-NEXT: CStyleCastExpr {{.*}} 'sycl::aspect' <IntegralCast>
+// CHECK-NEXT: IntegerLiteral {{.*}} 'int' 1
+// CHECK-NEXT: SubstNonTypeTemplateParmExpr {{.*}} 'sycl::aspect'
+// CHECK-NEXT: NonTypeTemplateParmDecl {{.*}} ... Asp
+// CHECK-NEXT: CStyleCastExpr {{.*}} 'sycl::aspect' <IntegralCast>
+// CHECK-NEXT: IntegerLiteral {{.*}} 'int' 2
+
+// CHECK: FunctionDecl {{.*}} func7 'void ()'
+// CHECK-NEXT: TemplateArgument pack
+// CHECK-NEXT: TemplateArgument integral 1
+// CHECK-NEXT: CompoundStmt
+// CHECK-NEXT: SYCLDeviceHasAttr
+// CHECK-NEXT: SubstNonTypeTemplateParmExpr {{.*}} 'sycl::aspect'
+// CHECK-NEXT: NonTypeTemplateParmDecl {{.*}} ... Asp
+// CHECK-NEXT: CStyleCastExpr {{.*}} 'sycl::aspect' <IntegralCast>
+// CHECK-NEXT: IntegerLiteral {{.*}} 'int' 1
+template <sycl::aspect... Asp>
+[[sycl::device_has(Asp...)]] void func7() {}
+
+// CHECK: FunctionTemplateDecl {{.*}} func8
+// CHECK-NEXT: NonTypeTemplateParmDecl {{.*}} Asp
+// CHECK-NEXT: NonTypeTemplateParmDecl {{.*}} ... AspPack
+// CHECK-NEXT: FunctionDecl {{.*}} func8
+// CHECK-NEXT: CompoundStmt
+// CHECK-NEXT: SYCLDeviceHasAttr
+// CHECK-NEXT: DeclRefExpr {{.*}} NonTypeTemplateParm {{.*}} 'Asp' 'sycl::aspect'
+// CHECK-NEXT: PackExpansionExpr
+// CHECK-NEXT: DeclRefExpr {{.*}} NonTypeTemplateParm {{.*}} 'AspPack' 'sycl::aspect'
+
+// CHECK-NEXT: FunctionDecl {{.*}} func8
+// CHECK-NEXT: TemplateArgument integral 0
+// CHECK-NEXT: TemplateArgument pack
+// CHECK-NEXT: TemplateArgument integral 1
+// CHECK-NEXT: CompoundStmt
+// CHECK-NEXT: SYCLDeviceHasAttr
+// CHECK-NEXT: SubstNonTypeTemplateParmExpr {{.*}} 'sycl::aspect'
+// CHECK-NEXT: NonTypeTemplateParmDecl {{.*}} Asp
+// CHECK-NEXT: CStyleCastExpr {{.*}} 'sycl::aspect' <IntegralCast>
+// CHECK-NEXT: IntegerLiteral {{.*}} 'int' 0
+// CHECK-NEXT: SubstNonTypeTemplateParmExpr {{.*}} 'sycl::aspect'
+// CHECK-NEXT: NonTypeTemplateParmDecl {{.*}} ... AspPack
+// CHECK-NEXT: CStyleCastExpr {{.*}} 'sycl::aspect' <IntegralCast>
+// CHECK-NEXT: IntegerLiteral {{.*}} 'int' 1
+template <sycl::aspect Asp, sycl::aspect... AspPack>
+[[sycl::device_has(Asp, AspPack...)]] void func8() {}
+
+// CHECK: CXXRecordDecl {{.*}} KernelFunctor definition
 class KernelFunctor {
 public:
   void operator()() const {
     func1();
     func2();
     func3();
-    func4<cl::sycl::aspect::host>();
+    func4<sycl::aspect::host>();
     func5();
     func6();
+    func7<sycl::aspect::cpu, sycl::aspect::gpu>();
+    func7<sycl::aspect::cpu>();
+    func8<sycl::aspect::host, sycl::aspect::cpu>();
   }
 };
 
@@ -76,7 +141,7 @@ public:
   // CHECK: CXXMethodDecl {{.*}} used operator() 'void () const'
   // CHECK: SYCLDeviceHasAtt
   // CHECK-NEXT: DeclRefExpr {{.*}} 'sycl::aspect' EnumConstant {{.*}} 'cpu' 'sycl::aspect'
-  [[sycl::device_has(cl::sycl::aspect::cpu)]] void operator()() const {}
+  [[sycl::device_has(sycl::aspect::cpu)]] void operator()() const {}
 };
 
 void foo() {
@@ -98,6 +163,6 @@ void foo() {
     // CHECK: FunctionDecl {{.*}}kernel_name_3
     // CHECK: SYCLDeviceHasAttr
     // CHECK-NEXT: DeclRefExpr {{.*}} 'sycl::aspect' EnumConstant {{.*}} 'gpu' 'sycl::aspect'
-    h.single_task<class kernel_name_3>([]() [[sycl::device_has(cl::sycl::aspect::gpu)]] {});
+    h.single_task<class kernel_name_3>([]() [[sycl::device_has(sycl::aspect::gpu)]] {});
   });
 }
