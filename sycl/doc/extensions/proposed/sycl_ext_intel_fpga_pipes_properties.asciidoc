@@ -35,7 +35,7 @@ and static member functions to pipes.
 
 == Notice
 
-Copyright (c) 2022 Intel Corporation.  All rights reserved.
+Copyright (c) 2022-2023 Intel Corporation.  All rights reserved.
 
 == Status
 
@@ -56,7 +56,7 @@ Revision: A
 
 == Contact
 
-Peter Colberg, Intel (peter 'dot' colberg 'at' intel 'dot' com)
+Robert Ho, Intel (robert 'dot' ho 'at' intel 'dot' com)
 
 == Contributors
 
@@ -66,7 +66,8 @@ Joe Garvey, Intel +
 Aditi Kumaraswamy, Intel +
 Robert Ho, Intel +
 Sherry Yuan, Intel +
-Peter Colberg, Intel
+Peter Colberg, Intel +
+Zibai Wang, Intel
 
 == Dependencies
 
@@ -78,12 +79,12 @@ It also depends on the `SYCL_INTEL_data_flow_pipes` and
 == Overview
 
 This extension introduces properties that establish differences in the
-implementation of `sycl::pipe`. These properties are FPGA specific. An example
+implementation of `sycl::ext::intel::experimental::pipe`. These properties are FPGA specific. An example
 of the syntax can be seen below. 
 
 [source,c++]
 ----
-using pipe = pipe<class some_pipe, int, decltype(properties{uses_ready<true>})>;
+using pipe = pipe<class some_pipe, int, min_capacity, decltype(properties{uses_valid<true>})>;
 ----
 
 == Feature test macro
@@ -109,46 +110,45 @@ Below is a list of compile-time-constant properties which `pipe` supports.
 ```c++
 namespace sycl::ext::intel::experimental {
 
-struct min_capacity {
-  template<int Capacity>
-  using value_t = property_value<min_capacity, std::integral_constant<int, Capacity>>;
+struct ready_latency_key {
+  template <int Latency>
+  using value_t = oneapi::experimental::property_value<
+      ready_latency_key, std::integral_constant<int, Latency>>;
 };
 
-struct ready_latency {
-  template<int Latency>
-  using value_t = property_value<ready_latency, std::integral_constant<int, Latency>>;
+struct bits_per_symbol_key {
+  template <int Bits>
+  using value_t =
+      oneapi::experimental::property_value<bits_per_symbol_key,
+                                           std::integral_constant<int, Bits>>;
 };
 
-struct bits_per_symbol {
-  template<int Bits>
-  using value_t = property_value<bits_per_symbol, std::integral_constant<int, Bits>>;
+struct uses_valid_key {
+  template <bool Valid>
+  using value_t =
+      oneapi::experimental::property_value<uses_valid_key,
+                                           std::bool_constant<Valid>>;
+};  
+    
+struct first_symbol_in_high_order_bits_key {
+  template <bool HighOrder>
+  using value_t =
+      oneapi::experimental::property_value<first_symbol_in_high_order_bits_key,
+                                           std::bool_constant<HighOrder>>;
 };
 
-struct uses_valid {
-  template<bool Valid>
-  using value_t = property_value<uses_valid, std::integral_constant<bool, Valid>>;
+enum class protocol_name : std::uint16_t {
+  AVALON_STREAMING = 0,
+  AVALON_STREAMING_USES_READY = 1,
+  AVALON_MM = 2,
+  AVALON_MM_USES_READY = 3
 };
 
-struct uses_ready {
-  template<bool Ready>
-  using value_t = property_value<uses_ready, std::integral_constant<bool, Ready>>;
+struct protocol_key {
+  template <protocol_name Protocol>
+  using value_t = oneapi::experimental::property_value<
+      protocol_key, std::integral_constant<protocol_name, Protocol>>;
 };
-
-struct first_symbol_in_high_order_bits {
-  template<bool HighOrder>
-  using value_t = property_value<first_symbol_in_high_order_bits, std::integral_constant<bool, HighOrder>>;
-};
-
-struct protocol {
-  enum class protocol_name {
-    AVALON,
-    AXI
-  };
-
-  template<protocol_name Protocol>
-  using value_t = property_value<protocol, std::integral_constant<protocol_name, Protocol>>;
-};
-
 } // namespace sycl::ext::intel::experimental
 ```
 
@@ -156,19 +156,6 @@ struct protocol {
 [options="header"]
 |====
 | Property | Description
-|`min_capacity`
-| Valid values: Non-negative integer value.
-
-Default value: 0
-
-User defined minimum number of words in units of data type size that the pipe
-must be able to store without any being read out. A minimum capacity is required
-in some algorithms to avoid deadlock, or for performance tuning. An
-implementation can include more capacity than this parameter, but not less.
-
-This property is not guaranteed to be respected if the pipe is an inter-kernel
-pipe. The compiler is allowed to optimize the pipe if both sides are visible.
-
 
 |`ready_latency`
 | Valid values: Non-negative integer value.
@@ -184,7 +171,7 @@ pipe. The compiler is allowed to optimize the pipe if both sides are visible.
 |`bits_per_symbol`
 | Valid values: A positive integer value that evenly divides by the data type size. 
 
-Default value: Datatype size
+Default value: 8
 
 Describes how the data is broken into symbols on the data bus.
 
@@ -205,22 +192,7 @@ upstream source must provide valid data on every cycle that ready is asserted.
 This is equivalent to changing the pipe read calls to tryRead and assuming that
 success is always true.
 
-If set to false, min_capacity and ready_latency must be 0.
-
-This property is not guaranteed to be respected if the pipe is an inter-kernel
-pipe. The compiler is allowed to optimize the pipe if both sides are visible.
-
-|`uses_ready`
-| Valid values: true or false
-
-Default value: true
-
-Controls whether a ready signal is present. If false, the downstream sink must
-be able to accept data on every cycle that valid is asserted. This is
-equivalent to changing the pipe read calls to tryWrite and assuming that success
-is always true.
-
-If set to false, ready_latency must be 0.
+If set to false, min_capacity (set in and ready_latency must be 0.
 
 This property is not guaranteed to be respected if the pipe is an inter-kernel
 pipe. The compiler is allowed to optimize the pipe if both sides are visible.
@@ -237,10 +209,32 @@ This property is not guaranteed to be respected if the pipe is an inter-kernel
 pipe. The compiler is allowed to optimize the pipe if both sides are visible.
 
 |`protocol`
-| Specifies the protocol for the pipe interface. Currently, the only protocol
-supported is AVALON. AXI will be supported in the future.
+| Specifies the protocol for the pipe interface. Currently, the protocols supported
+are: AVALON_STREAMING, AVALON_STREAMING_USES_READY, AVALON_MM, and AVALON_MM_USES_READY.
 
-The default protocol is AVALON.
+AVALON_STREAMING
+
+Provide an Avalon streaming interface as described in https://www.intel.com/content/www/us/en/docs/programmable/683091/22-3/introduction-to-the-interface-specifications.html[Intel® Avalon Interface Specifications].
+
+With this choice of protocol, no ready signal is exposed by the host pipe, and the sink cannot backpressure.
+
+AVALON_STREAMING_USES_READY
+
+Provide an Avalon streaming interface as described in https://www.intel.com/content/www/us/en/docs/programmable/683091/22-3/introduction-to-the-interface-specifications.html[Intel® Avalon Interface Specifications].
+
+This protocol allows the sink to backpressure by deasserting the ready signal asserted. The sink signifies that it is ready to consume data by asserting the ready signal. 
+
+AVALON_MM
+Provide an Avalon memory mapped interface as described in https://www.intel.com/content/www/us/en/docs/programmable/683091/22-3/introduction-to-the-interface-specifications.html[Intel® Avalon Interface Specifications].
+
+With this protocol, an implicit ready signal is held high, and the sink cannot backpressure.
+
+AVALON_MM_USES_READY
+Provide an Avalon memory mapped interface as described in https://www.intel.com/content/www/us/en/docs/programmable/683091/22-3/introduction-to-the-interface-specifications.html[Intel® Avalon Interface Specifications].
+
+With this protocol, an additional memory mapped location is created to hold the ready signal. You must set the uses_valid property to true.
+
+The default protocol is AVALON_STREAMING_USES_READY
 |====
 --
 
@@ -252,6 +246,7 @@ The default protocol is AVALON.
 |========================================
 |Rev|Date|Author|Changes
 |1|2022-03-18|Peter Colberg|*Initial public working draft*
+|2|2023-04-06|Robert Ho|Removal of unused properties, update protocols
 |========================================
 
 //************************************************************************
