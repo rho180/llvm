@@ -20,9 +20,6 @@
 // This is necessary for asciidoc, but not for asciidoctor
 :cpp: C++
 
-== Introduction
-IMPORTANT: This specification is a draft.
-
 NOTE: Khronos(R) is a registered trademark and SYCL(TM) and SPIR(TM) are
 trademarks of The Khronos Group Inc.  OpenCL(TM) is a trademark of Apple Inc.
 used by permission by Khronos.
@@ -39,15 +36,12 @@ Copyright (c) 2022-2023 Intel Corporation.  All rights reserved.
 
 == Status
 
-Working Draft
-
-This is a preview extension specification, intended to provide early access to
-a feature for review and community feedback. When the feature matures, this
-specification may be released as a formal extension.
-
-Because the interfaces defined by this specification are not final and are
-subject to change they are not intended to be used by shipping software
-products.
+This is an experimental extension specification, intended to provide early
+access to features and gather community feedback.  Interfaces defined in this
+specification are implemented in {icpx}, but they are not finalized and may
+change incompatibly in future versions of {icpx} without prior notice.
+*Shipping software products should not rely on APIs defined in this
+specification.*
 
 == Version
 
@@ -71,10 +65,11 @@ Zibai Wang, Intel
 
 == Dependencies
 
-This extension is written against the SYCL 2020 specification, revision 3.
+This extension is written against the SYCL 2020 specification, Revision 6 and
+the following extensions:
 
-It also depends on the `SYCL_INTEL_data_flow_pipes` and
-`sycl_ext_oneapi_properties` extensions.
+- link:../supported/sycl_ext_intel_dataflow_pipes.asciidoc[SYCL_INTEL_data_flow_pipes]
+- link:../experimental/sycl_ext_oneapi_properties.asciidoc[sycl_ext_oneapi_properties]
 
 == Overview
 
