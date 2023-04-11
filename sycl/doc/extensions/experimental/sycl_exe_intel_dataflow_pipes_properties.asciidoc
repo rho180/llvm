@@ -9,7 +9,7 @@
 :toc: left
 :encoding: utf-8
 :lang: en
-
+:dpcpp: pass:[DPC++]
 :blank: pass:[ +]
 
 // Set the default source code type in this document to C++,
@@ -28,7 +28,7 @@ NOTE: This document is better viewed when rendered as html with asciidoctor.
 GitHub does not render image icons.
 
 This document describes an extension that adds compile-time constant properties
-and static member functions to pipes.
+to pipes.
 
 == Notice
 
@@ -38,8 +38,8 @@ Copyright (c) 2022-2023 Intel Corporation.  All rights reserved.
 
 This is an experimental extension specification, intended to provide early
 access to features and gather community feedback.  Interfaces defined in this
-specification are implemented in {icpx}, but they are not finalized and may
-change incompatibly in future versions of {icpx} without prior notice.
+specification are implemented in {dpcpp}, but they are not finalized and may
+change incompatibly in future versions of {dpcpp} without prior notice.
 *Shipping software products should not rely on APIs defined in this
 specification.*
 
