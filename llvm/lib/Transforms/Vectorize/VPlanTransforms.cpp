@@ -501,6 +501,26 @@ void VPlanTransforms::removeDeadRecipes(VPlan &Plan) {
   }
 }
 
+static VPValue *createScalarIVSteps(VPlan &Plan, const InductionDescriptor &ID,
+                                    ScalarEvolution &SE, Instruction *TruncI,
+                                    Type *IVTy, VPValue *StartV,
+                                    VPValue *Step) {
+  VPBasicBlock *HeaderVPBB = Plan.getVectorLoopRegion()->getEntryBasicBlock();
+  auto IP = HeaderVPBB->getFirstNonPhi();
+  VPCanonicalIVPHIRecipe *CanonicalIV = Plan.getCanonicalIV();
+  Type *TruncTy = TruncI ? TruncI->getType() : IVTy;
+  VPValue *BaseIV = CanonicalIV;
+  if (!CanonicalIV->isCanonical(ID.getKind(), StartV, Step, TruncTy)) {
+    BaseIV = new VPDerivedIVRecipe(ID, StartV, CanonicalIV, Step,
+                                   TruncI ? TruncI->getType() : nullptr);
+    HeaderVPBB->insert(BaseIV->getDefiningRecipe(), IP);
+  }
+
+  VPScalarIVStepsRecipe *Steps = new VPScalarIVStepsRecipe(ID, BaseIV, Step);
+  HeaderVPBB->insert(Steps, IP);
+  return Steps;
+}
+
 void VPlanTransforms::optimizeInductions(VPlan &Plan, ScalarEvolution &SE) {
   SmallVector<VPRecipeBase *> ToRemove;
   VPBasicBlock *HeaderVPBB = Plan.getVectorLoopRegion()->getEntryBasicBlock();
@@ -514,23 +534,10 @@ void VPlanTransforms::optimizeInductions(VPlan &Plan, ScalarEvolution &SE) {
         }))
       continue;
 
-    auto IP = HeaderVPBB->getFirstNonPhi();
-    VPCanonicalIVPHIRecipe *CanonicalIV = Plan.getCanonicalIV();
-    Type *ResultTy = WideIV->getPHINode()->getType();
-    if (Instruction *TruncI = WideIV->getTruncInst())
-      ResultTy = TruncI->getType();
     const InductionDescriptor &ID = WideIV->getInductionDescriptor();
-    VPValue *Step = WideIV->getStepValue();
-    VPValue *BaseIV = CanonicalIV;
-    if (!CanonicalIV->isCanonical(ID.getKind(), WideIV->getStartValue(), Step,
-                                  ResultTy)) {
-      BaseIV = new VPDerivedIVRecipe(ID, WideIV->getStartValue(), CanonicalIV,
-                                     Step, ResultTy);
-      HeaderVPBB->insert(BaseIV->getDefiningRecipe(), IP);
-    }
-
-    VPScalarIVStepsRecipe *Steps = new VPScalarIVStepsRecipe(ID, BaseIV, Step);
-    HeaderVPBB->insert(Steps, IP);
+    VPValue *Steps = createScalarIVSteps(
+        Plan, ID, SE, WideIV->getTruncInst(), WideIV->getPHINode()->getType(),
+        WideIV->getStartValue(), WideIV->getStepValue());
 
     // Update scalar users of IV to use Step instead. Use SetVector to ensure
     // the list of users doesn't contain duplicates.
@@ -792,11 +799,55 @@ void VPlanTransforms::clearReductionWrapFlags(VPlan &Plan) {
   }
 }
 
+/// Returns true is \p V is constant one.
+static bool isConstantOne(VPValue *V) {
+  if (!V->isLiveIn())
+    return false;
+  auto *C = dyn_cast<ConstantInt>(V->getLiveInIRValue());
+  return C && C->isOne();
+}
+
+/// Returns the llvm::Instruction opcode for \p R.
+static unsigned getOpcodeForRecipe(VPRecipeBase &R) {
+  if (auto *WidenR = dyn_cast<VPWidenRecipe>(&R))
+    return WidenR->getUnderlyingInstr()->getOpcode();
+  if (auto *RepR = dyn_cast<VPReplicateRecipe>(&R))
+    return RepR->getUnderlyingInstr()->getOpcode();
+  if (auto *VPI = dyn_cast<VPInstruction>(&R))
+    return VPI->getOpcode();
+  return 0;
+}
+
+/// Try to simplify recipe \p R.
+static void simplifyRecipe(VPRecipeBase &R) {
+  unsigned Opcode = getOpcodeForRecipe(R);
+  if (Opcode == Instruction::Mul) {
+    VPValue *A = R.getOperand(0);
+    VPValue *B = R.getOperand(1);
+    if (isConstantOne(A))
+      return R.getVPSingleValue()->replaceAllUsesWith(B);
+    if (isConstantOne(B))
+      return R.getVPSingleValue()->replaceAllUsesWith(A);
+  }
+}
+
+/// Try to simplify the recipes in \p Plan.
+static void simplifyRecipes(VPlan &Plan) {
+  ReversePostOrderTraversal<VPBlockDeepTraversalWrapper<VPBlockBase *>> RPOT(
+      Plan.getEntry());
+  for (VPBasicBlock *VPBB : VPBlockUtils::blocksOnly<VPBasicBlock>(RPOT)) {
+    for (VPRecipeBase &R : make_early_inc_range(*VPBB)) {
+      simplifyRecipe(R);
+    }
+  }
+}
+
 void VPlanTransforms::optimize(VPlan &Plan, ScalarEvolution &SE) {
   removeRedundantCanonicalIVs(Plan);
   removeRedundantInductionCasts(Plan);
 
   optimizeInductions(Plan, SE);
+  simplifyRecipes(Plan);
   removeDeadRecipes(Plan);
 
   createAndOptimizeReplicateRegions(Plan);

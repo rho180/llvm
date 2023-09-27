@@ -454,10 +454,10 @@ def FeatureDPP8 : SubtargetFeature<"dpp8",
   "Support DPP8 (Data Parallel Primitives) extension"
 >;
 
-def Feature64BitDPP : SubtargetFeature<"dpp-64bit",
-  "Has64BitDPP",
+def FeatureDPALU_DPP : SubtargetFeature<"dpp-64bit",
+  "HasDPALU_DPP",
   "true",
-  "Support DPP (Data Parallel Primitives) extension"
+  "Support DPP (Data Parallel Primitives) extension in DP ALU"
 >;
 
 def FeaturePackedFP32Ops : SubtargetFeature<"packed-fp32-ops",
@@ -872,6 +872,12 @@ def FeatureTrigReducedRange : SubtargetFeature<"trig-reduced-range",
   "Requires use of fract on arguments to trig instructions"
 >;
 
+def FeatureKernargPreload : SubtargetFeature <"kernarg-preload",
+  "KernargPreload",
+  "true",
+  "Hardware supports preloading of kernel arguments in user SGPRs."
+>;
+
 // Alignment enforcement is controlled by a configuration register:
 // SH_MEM_CONFIG.alignment_mode
 def FeatureUnalignedAccessMode : SubtargetFeature<"unaligned-access-mode",
@@ -1179,13 +1185,14 @@ def FeatureISAVersion9_0_A : FeatureSet<
   !listconcat(FeatureISAVersion9_0_MI_Common.Features,
     [FeatureGFX90AInsts,
      FeatureFmacF64Inst,
-     Feature64BitDPP,
+     FeatureDPALU_DPP,
      FeaturePackedFP32Ops,
      FeatureAtomicFaddRtnInsts,
      FeatureAtomicBufferGlobalPkAddF16Insts,
      FeaturePackedTID,
      FullRate64Ops,
-     FeatureBackOffBarrier])>;
+     FeatureBackOffBarrier,
+     FeatureKernargPreload])>;
 
 def FeatureISAVersion9_0_C : FeatureSet<
   !listconcat(FeatureISAVersion9_0_Common.Features,
@@ -1213,7 +1220,7 @@ def FeatureISAVersion9_4_Common : FeatureSet<
    FeatureDot10Insts,
    FeatureAtomicDsPkAdd16Insts,
    FeatureAtomicFlatPkAdd16Insts,
-   Feature64BitDPP,
+   FeatureDPALU_DPP,
    FeaturePackedFP32Ops,
    FeatureMAIInsts,
    FeatureFP8Insts,
@@ -1227,7 +1234,8 @@ def FeatureISAVersion9_4_Common : FeatureSet<
    FeaturePackedTID,
    FeatureArchitectedFlatScratch,
    FullRate64Ops,
-   FeatureBackOffBarrier]>;
+   FeatureBackOffBarrier,
+   FeatureKernargPreload]>;
 
 def FeatureISAVersion9_4_0 : FeatureSet<
   !listconcat(FeatureISAVersion9_4_Common.Features,
@@ -1699,11 +1707,14 @@ def HasDPP : Predicate<"Subtarget->hasDPP()">,
 def HasDPP8 : Predicate<"Subtarget->hasDPP8()">,
   AssemblerPredicate<(all_of (not FeatureGCN3Encoding), FeatureGFX10Insts, FeatureDPP8)>;
 
-def Has64BitDPP : Predicate<"Subtarget->has64BitDPP()">,
-  AssemblerPredicate<(all_of Feature64BitDPP)>;
+def HasDPALU_DPP : Predicate<"Subtarget->hasDPALU_DPP()">,
+  AssemblerPredicate<(all_of FeatureDPALU_DPP)>;
 
 def HasPackedFP32Ops : Predicate<"Subtarget->hasPackedFP32Ops()">,
   AssemblerPredicate<(all_of FeaturePackedFP32Ops)>;
+
+def HasPkMovB32 : Predicate<"Subtarget->hasPkMovB32()">,
+  AssemblerPredicate<(all_of FeatureGFX90AInsts)>;
 
 def HasFmaakFmamkF32Insts :
   Predicate<"Subtarget->hasFmaakFmamkF32Insts()">,
@@ -1861,6 +1872,9 @@ def HasNotMADIntraFwdBug : Predicate<"!Subtarget->hasMADIntraFwdBug()">;
 def HasGDS : Predicate<"Subtarget->hasGDS()">;
 
 def HasGWS : Predicate<"Subtarget->hasGWS()">;
+
+def HasCvtFP8VOP1Bug : Predicate<"Subtarget->hasCvtFP8VOP1Bug()">;
+def HasNoCvtFP8VOP1Bug : Predicate<"!Subtarget->hasCvtFP8VOP1Bug()">;
 
 // Include AMDGPU TD files
 include "SISchedule.td"
